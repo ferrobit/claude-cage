@@ -1,0 +1,32 @@
+#!/usr/sbin/nft -f
+#
+# Drop inbound probes used by the 2ip.io "Defining tunnel (two way ping)"
+# privacy check against this host's public address.
+#
+# The check pings the address the website sees (the proxy/VPN exit) and treats
+# an ICMP echo or timestamp reply as evidence that the client is reachable
+# behind a tunnel.  It also sends OpenVPN-style UDP probes to well-known ports
+# and treats an ICMP unreachable reply as a sign of a blocking firewall.
+# Dropping these silently makes the exit look like an ordinary NATed client.
+#
+# This table is additive: it never flushes the ruleset, so Docker's nftables
+# tables and all real services are untouched.  Only the listed ICMP types and
+# the unused VPN UDP ports are affected.
+#
+# Install as /etc/lan-harden.nft and load it with `nft -f` (the
+# lan-harden.service unit does that at boot).
+
+destroy table inet lan_harden
+
+table inet lan_harden {
+    chain input {
+        type filter hook input priority -10; policy accept;
+
+        # ICMP echo, timestamp and address-mask requests.
+        icmp type { echo-request, timestamp-request, address-mask-request } drop
+
+        # VPN probe ports that are not in use on this host.  WireGuard /
+        # AmneziaWG uses a different UDP port, which is deliberately not listed.
+        udp dport { 500, 1194, 1701, 1723, 4500, 51820 } drop
+    }
+}

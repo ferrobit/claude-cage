@@ -1,0 +1,14 @@
+[Unit]
+Description=Drop inbound tunnel-detection probes (ICMP echo/timestamp and VPN UDP ports)
+Documentation=file:/etc/lan-harden.nft
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/sbin/nft -f /etc/lan-harden.nft
+ExecReload=/usr/sbin/nft -f /etc/lan-harden.nft
+
+[Install]
+WantedBy=multi-user.target

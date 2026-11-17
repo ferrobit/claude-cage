@@ -1,0 +1,107 @@
+services:
+  # -------------------------------------------------------------------------
+  # Desktop container
+  #
+  # Egress goes through mihomo running inside this container.  Its only
+  # upstream is the host's SOCKS5 service (container 127.0.0.1:12005 is
+  # forwarded to the host's published port by the entrypoint).  The container
+  # keeps its own normal Docker network, publishes no ports and imports no
+  # other container's network.
+  # -------------------------------------------------------------------------
+  claude-cage:
+    image: claude-cage
+    container_name: claude-cage
+    build:
+      context: .
+      dockerfile: compose.dockerfile
+      args:
+        USERNAME: ${USER:-user}
+        USER_UID: ${HOST_UID:-1000}
+        USER_GID: ${HOST_GID:-1000}
+        VIDEO_GID: ${VIDEO_GID:-986}
+        RENDER_GID: ${RENDER_GID:-989}
+        AUDIO_GID: ${AUDIO_GID:-995}
+        INPUT_GID: ${INPUT_GID:-993}
+    restart: unless-stopped
+    init: true
+    # Needed to install the egress firewall that blocks direct internet access.
+    cap_add:
+      - NET_ADMIN
+    # Makes the host's published SOCKS5 port reachable from this
+    # container (the entrypoint forwards 127.0.0.1:12005 to it).
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
+    group_add:
+      - "${VIDEO_GID:-986}"
+      - "${RENDER_GID:-989}"
+      - "${AUDIO_GID:-995}"
+      - "${INPUT_GID:-993}"
+    working_dir: /home/${USER:-user}
+    shm_size: "2gb"
+    # Remove this block on a host without /dev/dri.
+    devices:
+      - "/dev/dri:/dev/dri"
+    environment:
+      HOME: /home/${USER:-user}
+      USER: ${USER:-user}
+      LOGNAME: ${USER:-user}
+      SHELL: /bin/bash
+      # YAML anchors (&name) and aliases (*name) keep each value in one place.
+      LANG: &locale en_US.UTF-8
+      LC_ALL: *locale
+      LANGUAGE: en_US:en
+      # Fixed to the proxy exit location (São Paulo) instead of the host
+      # timezone, so websites do not see a timezone/location mismatch.
+      TZ: America/Sao_Paulo
+
+      # X11 / XWayland
+      DISPLAY: ${DISPLAY:-:0}
+      # The wrapper computes this, but the fixed bind location is the default.
+      XAUTHORITY: /run/host/xauthority
+
+      # Wayland + session runtime directory
+      XDG_RUNTIME_DIR: /run/user/${HOST_UID:-1000}
+      WAYLAND_DISPLAY: ${WAYLAND_DISPLAY:-}
+      XDG_SESSION_TYPE: ${XDG_SESSION_TYPE:-x11}
+      XDG_CURRENT_DESKTOP: KDE
+      DESKTOP_SESSION: plasma
+      QT_QPA_PLATFORM: xcb
+      MOZ_ENABLE_WAYLAND: "1"
+      ELECTRON_OZONE_PLATFORM_HINT: auto
+
+      # Audio + session bus from the host
+      PULSE_SERVER: unix:/run/user/${HOST_UID:-1000}/pulse/native
+      DBUS_SESSION_BUS_ADDRESS: unix:path=/run/user/${HOST_UID:-1000}/bus
+
+      # Route proxy-aware tools through the embedded mihomo.
+      ALL_PROXY: &proxy socks5h://127.0.0.1:7890
+      all_proxy: *proxy
+      HTTP_PROXY: *proxy
+      HTTPS_PROXY: *proxy
+      http_proxy: *proxy
+      https_proxy: *proxy
+      NO_PROXY: &no_proxy localhost,127.0.0.1,::1
+      no_proxy: *no_proxy
+    volumes:
+      # Dedicated container home directory (not the host home).  The container
+      # user has the same UID/GID as the host user, so files created here are
+      # owned by you on the host.
+      - "./home:/home/${USER:-user}"
+
+      # The host's ~/Claude shared at the same path, as a deliberate hand-off
+      # folder for Claude Desktop.  It is bookmarked in the standard file
+      # dialog (see mihomo/entrypoint.sh), so it appears in the sidebar.
+      # Read-write so Claude can save files there; every other host folder
+      # stays hidden from the container.
+      - "${HOME}/Claude:/home/${USER:-user}/Claude:rw"
+
+      # Host Xauthority file (read-only, single file, not the home directory).
+      # The wrapper sets XAUTHORITY_FILE; when unset, /dev/null is a harmless
+      # placeholder and X11 access relies on `xhost +si:localuser`.
+      - "${XAUTHORITY_FILE:-/dev/null}:/run/host/xauthority:ro"
+
+      # GUI sockets.
+      - "/tmp/.X11-unix:/tmp/.X11-unix:rw"
+      - "${XDG_RUNTIME_DIR:-/run/user/1000}:/run/user/${HOST_UID:-1000}:rw"
+      - "/run/dbus/system_bus_socket:/run/dbus/system_bus_socket"
