@@ -517,7 +517,9 @@ claude-cage/
 ├── .dockerignore            # build context: Dockerfile + mihomo/ only
 ├── docs/
 │   ├── logo.svg             # project logo (vector)
-│   └── logo.png             # 512 px raster, e.g. for the GitHub social preview
+│   ├── logo.png             # project logo, 512 px raster
+│   ├── social-preview.svg   # GitHub social preview source (needs the Inter font)
+│   └── social-preview.png   # 1280 × 640 image for Settings → Social preview
 ├── home/                    # dedicated container home (not the host home)
 ├── mihomo/
 │   ├── config.yaml          # embedded mihomo configuration
