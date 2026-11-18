@@ -11,11 +11,12 @@ HOST_PROXY_PORT=12005
 
 # Forward 127.0.0.1:12005 inside the container to the host's SOCKS5 port.
 # This keeps mihomo's proxy entry exactly `127.0.0.1:12005` without exposing
-# any additional listener.
+# any additional listener.  `nodelay` sets TCP_NODELAY on both sockets: socat
+# otherwise leaves Nagle's algorithm on, which holds small packets back.
 forward_loop() {
     while :; do
-        socat TCP-LISTEN:${HOST_PROXY_PORT},bind=127.0.0.1,fork,reuseaddr \
-            TCP:host.docker.internal:${HOST_PROXY_PORT} || true
+        socat TCP-LISTEN:${HOST_PROXY_PORT},bind=127.0.0.1,fork,reuseaddr,nodelay \
+            TCP:host.docker.internal:${HOST_PROXY_PORT},nodelay || true
         sleep 2
     done
 }

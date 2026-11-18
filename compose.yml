@@ -31,6 +31,11 @@ services:
     # container (the entrypoint forwards 127.0.0.1:12005 to it).
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    # Send small TCP segments at once: the kernel must not hold them back to
+    # merge them with later writes (autocorking).  This applies only to the
+    # network namespace of this container, not to the host.
+    sysctls:
+      net.ipv4.tcp_autocorking: 0
     user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
     group_add:
       - "${VIDEO_GID:-986}"

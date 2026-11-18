@@ -195,7 +195,7 @@ and no extra Docker networks are used.
 - `mihomo/config.yaml` defines exactly one proxy, `host-proxy`, a SOCKS5
   upstream at `127.0.0.1:12005`, and the single rule `MATCH,host-proxy`.
 - The entrypoint runs
-  `socat TCP-LISTEN:12005,bind=127.0.0.1 ... TCP:host.docker.internal:12005`,
+  `socat TCP-LISTEN:12005,bind=127.0.0.1,nodelay ... TCP:host.docker.internal:12005,nodelay`,
   so container loopback port `12005` is the host's published SOCKS5 service.
   `host.docker.internal` is mapped by
   `extra_hosts: host.docker.internal:host-gateway`.
@@ -215,6 +215,32 @@ and no extra Docker networks are used.
   Firefox gets an enterprise policy at
   `/usr/lib/firefox/distribution/policies.json` that sends HTTP and HTTPS to
   the same listener and locks DNS over HTTPS off.
+
+### Low-latency TCP
+
+Small TCP packets are sent at once on every hop inside the container instead
+of being held back and merged:
+
+| Hop | Setting | Where |
+|---|---|---|
+| application → mihomo (`127.0.0.1:7890`) | `TCP_NODELAY`, set by mihomo (the Go runtime enables it by default) | built in |
+| mihomo → socat (`127.0.0.1:12005`) | `TCP_NODELAY` on both ends: mihomo by default, socat by `nodelay` | `mihomo/entrypoint.sh` |
+| socat → host SOCKS5 (`host.docker.internal:12005`) | `TCP_NODELAY` by `nodelay` | `mihomo/entrypoint.sh` |
+| every TCP socket in the container | `net.ipv4.tcp_autocorking: 0` (no kernel-side merging of small writes) | `compose.yml` → `sysctls:` |
+
+`TCP_NODELAY` turns off Nagle's algorithm, which delays a small packet until
+the previous one is acknowledged. Without `nodelay`, the socat hop added about
+40 ms to every request made of two small writes. The sysctl is limited to the
+container's network namespace; the host keeps its own value. Everything
+beyond the host's SOCKS5 port (the proxy itself and its exit server) is
+outside the container and is not affected.
+
+Check it:
+
+```bash
+./claude-cage.sh run cat /proc/sys/net/ipv4/tcp_autocorking   # 0
+./claude-cage.sh run pgrep -a socat                           # ...,nodelay ...,nodelay
+```
 
 ## Timezone, language and geolocation
 
