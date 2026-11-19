@@ -63,6 +63,7 @@ RUN pacman -S --noconfirm --needed \
         kate \
         ark \
         firefox \
+        chromium \
         kde-cli-tools \
         kde-gtk-config \
         xdg-utils \
@@ -238,6 +239,47 @@ RUN set -eux; \
         '  }' \
         '}' \
         > /usr/lib/firefox/distribution/policies.json
+
+# Chromium gets the same treatment as Claude Desktop and Firefox.  A wrapper
+# earlier in PATH adds the sandbox, language and WebRTC flags; a managed
+# policy forces all traffic through the embedded mihomo listener (the HTTP
+# proxy receives hostnames, so DNS is resolved behind the proxy), locks DNS
+# over HTTPS and QUIC off, blocks geolocation and keeps WebRTC from sending
+# UDP past the proxy.
+RUN set -eux; \
+    test -x /usr/bin/chromium; \
+    lang_tag="$(printf '%s' "${LANG%%[.@]*}" | tr _ -)"; \
+    lang_base="${lang_tag%%-*}"; \
+    printf '%s\n' \
+        '#!/bin/sh' \
+        '# Chromium sandbox is unreliable inside plain Docker.' \
+        '# --no-zygote is required when unprivileged user namespaces are blocked.' \
+        '# The proxy itself is set by the managed policy in /etc/chromium/policies.' \
+        '# --lang is derived from LANG (de_DE.UTF-8 -> de-DE); disabling non-proxied UDP' \
+        '# stops WebRTC from leaking the container or host address.' \
+        'lang_tag="$(printf "%s" "${LANG%%[.@]*}" | tr _ -)"' \
+        'exec /usr/bin/chromium \' \
+        '    --no-sandbox --no-zygote --ozone-platform-hint=auto \' \
+        '    --lang="${lang_tag}" \' \
+        '    --force-webrtc-ip-handling-policy=disable_non_proxied_udp \' \
+        '    "$@"' \
+        > /usr/local/bin/chromium; \
+    chmod 755 /usr/local/bin/chromium; \
+    mkdir -p /etc/chromium/policies/managed; \
+    printf '%s\n' \
+        '{' \
+        '  "ProxySettings": {' \
+        '    "ProxyMode": "fixed_servers",' \
+        '    "ProxyServer": "http://127.0.0.1:7890",' \
+        '    "ProxyBypassList": "localhost;127.0.0.1;[::1]"' \
+        '  },' \
+        '  "DnsOverHttpsMode": "off",' \
+        '  "QuicAllowed": false,' \
+        '  "DefaultGeolocationSetting": 2,' \
+        '  "WebRtcIPHandling": "disable_non_proxied_udp",' \
+        '  "ForcedLanguages": ["'"${lang_tag}"'", "'"${lang_base}"'"]' \
+        '}' \
+        > /etc/chromium/policies/managed/claude-cage.json
 
 # ---------------------------------------------------------------------------
 # Desktop user matching the host UID/GID

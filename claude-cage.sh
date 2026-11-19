@@ -97,6 +97,7 @@ Lifecycle:
 Desktop / GUI:
   claude [args...]      Launch Claude Desktop on the host display
   firefox [args...]     Launch Firefox on the host display
+  chromium [args...]    Launch Chromium on the host display
   dolphin [args...]     Launch Dolphin on the host display
   konsole [args...]     Launch Konsole on the host display
   kate [args...]        Launch Kate on the host display
@@ -114,6 +115,7 @@ Examples:
   HOST_PROXY_PORT=1080 $(basename "$0") up
   $(basename "$0") claude
   $(basename "$0") firefox
+  $(basename "$0") chromium
   $(basename "$0") run pacman -Q arc-kde-git
 EOF
 }
@@ -194,6 +196,9 @@ case "$cmd" in
         ;;
     firefox)
         run_gui firefox "$@"
+        ;;
+    chromium)
+        run_gui chromium "$@"
         ;;
     dolphin)
         run_gui dolphin "$@"

@@ -42,8 +42,8 @@ websites cannot recover the host's real position.
 
 ## Features
 
-- 🖥️ **Full KDE desktop stack** — Dolphin, Konsole, Kate, Ark and Firefox,
-  rendered on the host's X11 or Wayland display.
+- 🖥️ **Full KDE desktop stack** — Dolphin, Konsole, Kate, Ark, Firefox and
+  Chromium, rendered on the host's X11 or Wayland display.
 - 🔒 **Single egress path** — mihomo → socat → host SOCKS5; everything else is
   dropped by an `iptables` `OUTPUT` policy.
 - 🌎 **Configurable location** — timezone, language and geolocation are set
@@ -100,6 +100,7 @@ cd claude-cage
 | `logs` | Follow the logs |
 | `claude [args...]` | Launch Claude Desktop on the host display |
 | `firefox [args...]` | Launch Firefox |
+| `chromium [args...]` | Launch Chromium |
 | `dolphin [args...]` | Launch Dolphin |
 | `konsole [args...]` | Launch Konsole |
 | `kate [args...]` | Launch Kate |
@@ -155,7 +156,7 @@ cp ~/Documents/report.pdf ~/Claude/
 ```mermaid
 flowchart LR
     subgraph cage["claude-cage container"]
-        apps["Claude Desktop<br/>Firefox<br/>CLI tools"] -->|"HTTP / SOCKS5<br/>127.0.0.1:7890"| mihomo["mihomo"]
+        apps["Claude Desktop<br/>Firefox<br/>Chromium<br/>CLI tools"] -->|"HTTP / SOCKS5<br/>127.0.0.1:7890"| mihomo["mihomo"]
         mihomo -->|"SOCKS5<br/>127.0.0.1:7800"| socat["socat"]
         other["Direct connections"] -.->|"dropped by iptables"| drop(("✕"))
     end
@@ -167,7 +168,7 @@ flowchart LR
 ### What the image contains
 
 - `manjarolinux/base:latest` with the `plasma-meta` KDE desktop stack,
-  Dolphin, Konsole, Kate, Ark and Firefox.
+  Dolphin, Konsole, Kate, Ark, Firefox and Chromium.
 - `arc-kde-git` and `claude-desktop`, built from the AUR during
   `docker build` with `makepkg` under a throw-away `aurbuild` user. The
   `claude-desktop` PKGBUILD repackages Anthropic's official Debian build, so
@@ -181,6 +182,10 @@ flowchart LR
     [Timezone, language and geolocation](#timezone-language-and-geolocation));
   - `--proxy-server=http://127.0.0.1:7890`;
   - `--force-webrtc-ip-handling-policy=disable_non_proxied_udp`.
+- Chromium with the package launcher at `/usr/bin/chromium` and a wrapper at
+  `/usr/local/bin/chromium` that adds the same `--no-sandbox --no-zygote`,
+  `--lang` and WebRTC flags. The proxy comes from a managed policy (see
+  [Network model](#network-model)).
 - A non-root user whose UID/GID match the host user, so files in `./home` are
   owned by you on the host.
 - The static `mihomo` binary copied from `metacubex/mihomo:latest`, plus
@@ -219,6 +224,9 @@ and no extra Docker networks are used.
   Firefox gets an enterprise policy at
   `/usr/lib/firefox/distribution/policies.json` that sends HTTP and HTTPS to
   the same listener and locks DNS over HTTPS off.
+- Chromium gets a managed policy at
+  `/etc/chromium/policies/managed/claude-cage.json` that sends all traffic to
+  the same listener (`ProxySettings`) and locks DNS over HTTPS and QUIC off.
 
 ### Low-latency TCP
 
@@ -304,6 +312,8 @@ Everything else is derived from them, so do not edit it:
 | `/etc/locale.conf` | `${LANG}`, `${LC_ALL}` | build |
 | Firefox policy `"RequestedLocales"` | `${LANG}` → language tag (`de_DE.UTF-8` → `de-DE`) | build |
 | Claude Desktop `--lang` | `${LANG}` → language tag | every launch |
+| Chromium `--lang` | `${LANG}` → language tag | every launch |
+| Chromium policy `"ForcedLanguages"` | `${LANG}` → language tag and base language (`de-DE`, `de`) | build |
 | KDE `~/.config/plasma-localerc` | `${LANG}`, `${LANGUAGE}` (seeded by `mihomo/entrypoint.sh`) | first container start |
 
 Keep the values in `compose.dockerfile` and `compose.yml` identical. The
@@ -351,6 +361,20 @@ By default geolocation is blocked everywhere:
   | `network.connectivity-service.enabled` | `false` | no probes outside the proxy |
   | `network.trr.mode` | `5` | DNS over HTTPS is off |
 
+- **Chromium.** The managed policy in `compose.dockerfile`
+  (`/etc/chromium/policies/managed/claude-cage.json` in the image) sets:
+
+  | Policy | Value | Effect |
+  |---|---|---|
+  | `DefaultGeolocationSetting` | `2` | location requests are denied |
+  | `WebRtcIPHandling` | `disable_non_proxied_udp` | WebRTC may only use the proxy |
+  | `DnsOverHttpsMode` | `off` | DNS over HTTPS is off |
+  | `QuicAllowed` | `false` | no QUIC (UDP) connections |
+  | `ForcedLanguages` | language tag, base language | `navigator.languages` and `Accept-Language` |
+
+  The wrapper also adds
+  `--force-webrtc-ip-handling-policy=disable_non_proxied_udp`.
+
 - **Claude Desktop.** Electron (the framework Claude Desktop is built on) has
   no location source of its own: it needs a Google API key, which is not set.
   The wrapper adds `--force-webrtc-ip-handling-policy=disable_non_proxied_udp`,
@@ -386,7 +410,8 @@ rm -f home/.config/plasma-localerc   # let the entrypoint seed the new KDE local
 ```
 
 `seed_kde_locale` never overwrites an existing `plasma-localerc`, so delete it
-first. Restart Claude Desktop and Firefox after the container is recreated.
+first. Restart Claude Desktop, Firefox and Chromium after the container is
+recreated.
 
 ### Step 6. Verify
 
@@ -408,6 +433,16 @@ In Firefox:
   Intl.DateTimeFormat().resolvedOptions().timeZone  // "Europe/Berlin"
   navigator.languages                               // ["de-DE", "de"]
   "geolocation" in navigator                        // false while geolocation is blocked
+  ```
+
+In Chromium:
+
+- `chrome://policy` → the `claude-cage` policies are listed with status **OK**;
+- in the DevTools console (`Ctrl+Shift+J`):
+
+  ```js
+  Intl.DateTimeFormat().resolvedOptions().timeZone  // "Europe/Berlin"
+  navigator.languages                               // ["de-DE", "de"]
   ```
 
 ### Limits
@@ -464,9 +499,9 @@ current host user through `xhost` (X11 only) and exposes the host
 directory.
 
 Because the home is separate, container applications start with fresh
-profiles: the first time you launch Claude Desktop or Firefox, you will need
-to sign in again. Copy any configuration you want into `./home` yourself; it
-stays on the host after the container is removed.
+profiles: the first time you launch Claude Desktop, Firefox or Chromium, you
+will need to sign in again. Copy any configuration you want into `./home`
+yourself; it stays on the host after the container is removed.
 
 The host's `~/Claude` is the only exception. It is bind-mounted read-write at
 the same path (`/home/$USER/Claude`) and bookmarked as **Claude (host)** in the
@@ -527,8 +562,8 @@ proxies:
   `sudo`; this is a convenience setup.
 - **Wayland.** `XDG_RUNTIME_DIR`, `/tmp/.X11-unix` and the host Xauthority file
   are used for GUI access. On a pure Wayland session the `WAYLAND_DISPLAY`
-  socket is shared through `XDG_RUNTIME_DIR`: Electron and Firefox use Wayland,
-  while Qt/KDE applications use XWayland (`QT_QPA_PLATFORM=xcb`).
+  socket is shared through `XDG_RUNTIME_DIR`: Electron, Firefox and Chromium
+  use Wayland, while Qt/KDE applications use XWayland (`QT_QPA_PLATFORM=xcb`).
 - **Device groups.** The `group_add` GIDs in `compose.yml` default to common
   values. The wrapper overrides them with the host's actual `video`, `render`,
   `audio` and `input` groups, and the image is built with matching GIDs, so
