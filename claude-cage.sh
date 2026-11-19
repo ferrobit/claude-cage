@@ -60,16 +60,12 @@ export INPUT_GID="${INPUT_GID:-993}"
 # The container timezone is fixed in compose.yml (it matches the proxy exit
 # location), so the host timezone is intentionally not forwarded.
 
-# The container has its own home directory (./home), so the host Xauthority
-# file is exposed separately as a single read-only file.  On a Wayland session
-# XAUTHORITY often lives under XDG_RUNTIME_DIR; `xhost +si:localuser` covers
-# X11 access either way.
+# The host X11 cookie file changes with every login (KDE keeps it in
+# XDG_RUNTIME_DIR under a random name).  A bind mount of it would point to a
+# missing file after a reboot and stop the container from starting, so the
+# cookie is copied into the container home before each launch instead.
+# `xhost +si:localuser` covers X11 access when there is no cookie.
 HOST_XAUTHORITY="${XAUTHORITY:-$HOME/.Xauthority}"
-if [ -f "$HOST_XAUTHORITY" ]; then
-    export XAUTHORITY_FILE="$HOST_XAUTHORITY"
-else
-    export XAUTHORITY_FILE=/dev/null
-fi
 
 COMPOSE=(docker compose --project-name "$PROJECT_NAME" -f "$COMPOSE_FILE")
 if is_wsl; then
@@ -85,10 +81,15 @@ allow_x11() {
     fi
 }
 
-# Map the host Xauthority path into the container.  The wrapper mounts the
-# file at a fixed location instead of sharing the host home directory.
+# Copy the current host X11 cookie into ./home/.Xauthority (mode 600) and
+# print its path inside the container, or /dev/null when there is none.
 container_xauthority() {
-    printf '/run/host/xauthority\n'
+    if [ -f "$HOST_XAUTHORITY" ] &&
+        install -m 600 "$HOST_XAUTHORITY" "$SCRIPT_DIR/home/.Xauthority" 2>/dev/null; then
+        printf '/home/%s/.Xauthority\n' "$HOST_USER"
+    else
+        printf '/dev/null\n'
+    fi
 }
 
 # Create the dedicated container home before compose does, so it is owned by

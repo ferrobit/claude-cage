@@ -62,8 +62,8 @@ services:
 
       # X11 / XWayland
       DISPLAY: ${DISPLAY:-:0}
-      # The wrapper computes this, but the fixed bind location is the default.
-      XAUTHORITY: /run/host/xauthority
+      # claude-cage.sh copies the host X11 cookie here before each launch.
+      XAUTHORITY: /home/${USER:-user}/.Xauthority
 
       # Wayland + session runtime directory
       XDG_RUNTIME_DIR: /run/user/${HOST_UID:-1000}
@@ -107,12 +107,18 @@ services:
       # /mnt/c/Users/<name>/Claude).
       - "${CLAUDE_SHARE_DIR:-${HOME}/Claude}:/home/${USER:-user}/Claude:rw"
 
-      # Host Xauthority file (read-only, single file, not the home directory).
-      # The wrapper sets XAUTHORITY_FILE; when unset, /dev/null is a harmless
-      # placeholder and X11 access relies on `xhost +si:localuser`.
-      - "${XAUTHORITY_FILE:-/dev/null}:/run/host/xauthority:ro"
-
-      # GUI sockets.
+      # GUI sockets.  Every source here exists at boot, before anyone logs
+      # in, so `restart: unless-stopped` can start the container after a
+      # reboot.  Per-login files (the X11 cookie, /run/user/<uid>) are never
+      # mounted directly: their paths do not exist yet at that moment.
       - "/tmp/.X11-unix:/tmp/.X11-unix:rw"
-      - "${XDG_RUNTIME_DIR:-/run/user/1000}:/run/user/${HOST_UID:-1000}:rw"
+      # Session runtime directories (Wayland, PulseAudio, session D-Bus).
+      # /run/user/<uid> is a tmpfs that appears only at login, so the parent
+      # is shared instead; `rslave` makes the later login mount visible in the
+      # already running container.
+      - type: bind
+        source: /run/user
+        target: /run/user
+        bind:
+          propagation: rslave
       - "/run/dbus/system_bus_socket:/run/dbus/system_bus_socket"

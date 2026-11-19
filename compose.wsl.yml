@@ -17,6 +17,14 @@ services:
       # /tmp/.X11-unix link), the Wayland runtime directory and PulseAudio.
       - "/mnt/wslg/.X11-unix:/tmp/.X11-unix:ro"
       - "/mnt/wslg:/mnt/wslg:rw"
+      # WSL has no login tmpfs under /run/user, and Docker Desktop cannot
+      # propagate mounts from it; WSLg's runtime directory takes its place
+      # (claude-cage.sh also points XDG_RUNTIME_DIR at /mnt/wslg/runtime-dir).
+      - type: bind
+        source: /mnt/wslg/runtime-dir
+        target: /run/user
+        bind:
+          propagation: rprivate
       # The distro's system bus is of no use to the container and may not
       # exist without systemd; /dev/null replaces the host socket mount.
       - "/dev/null:/run/dbus/system_bus_socket:ro"

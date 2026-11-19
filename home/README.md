@@ -12,6 +12,7 @@ will find:
 | Path | Created by | Contents |
 |---|---|---|
 | `.config/plasma-localerc` | entrypoint, first start | KDE language and formats, taken from `LANG` and `LANGUAGE` |
+| `.Xauthority` | `claude-cage.sh`, every GUI launch | copy of the host X11 cookie (mode 600) |
 | `.config/gtk-3.0/bookmarks` | entrypoint, first start | the **Claude (host)** entry in the file dialog |
 | `Claude/` | Docker | mount point of the host's `~/Claude` (or `CLAUDE_SHARE_DIR`); on this side it stays empty |
 | `.config/Claude/` | Claude Desktop | settings, sign-in session, local data |

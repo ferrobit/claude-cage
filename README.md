@@ -496,9 +496,9 @@ ping -c 2 -W 3 <VPS-IP>                             # 100% packet loss, no reply
 The container has its own home directory: `./home` is mounted at
 `/home/$USER`. The host X11/Wayland, D-Bus, audio and GPU devices are shared
 with the container. Before launching an application, the wrapper allows the
-current host user through `xhost` (X11 only) and exposes the host
-`XAUTHORITY` file as a single read-only mount — never the whole home
-directory.
+current host user through `xhost` (X11 only) and copies the current host
+X11 cookie (`XAUTHORITY`) into `./home/.Xauthority` with mode `600` — the host
+home directory is never mounted.
 
 Because the home is separate, container applications start with fresh
 profiles: the first time you launch Claude Desktop, Firefox or Chromium, you
@@ -722,6 +722,12 @@ proxies:
   Anthropic's official `.deb` from `downloads.claude.ai` and verifies it
   against the PKGBUILD checksum. The container proxy does not exist yet at that
   point.
+- **Start after a reboot.** `restart: unless-stopped` starts the container
+  at boot, before anyone logs in. That is why only paths that already exist
+  at boot are mounted: the whole `/run/user` with `rslave` propagation (the
+  per-login `/run/user/<uid>` then appears inside the running container) and
+  no X11 cookie file (the wrapper copies the cookie at every launch). GUI
+  applications can be started as soon as you are logged in.
 - **Persistent home.** `./home` persists across `down`/`up`, and its contents
   are ignored by git.
 - **Shared session bus.** Single-instance applications (Dolphin, Kate, …)
@@ -729,7 +735,7 @@ proxies:
   an already-running host instance instead of opening a second one.
 - **Not a sandbox for hostile code.** The container user has passwordless
   `sudo`; this is a convenience setup.
-- **Wayland.** `XDG_RUNTIME_DIR`, `/tmp/.X11-unix` and the host Xauthority file
+- **Wayland.** `XDG_RUNTIME_DIR`, `/tmp/.X11-unix` and the copied X11 cookie
   are used for GUI access. On a pure Wayland session the `WAYLAND_DISPLAY`
   socket is shared through `XDG_RUNTIME_DIR`: Electron, Firefox and Chromium
   use Wayland, while Qt/KDE applications use XWayland (`QT_QPA_PLATFORM=xcb`).
