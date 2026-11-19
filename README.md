@@ -14,6 +14,7 @@
 [![mihomo](https://img.shields.io/badge/proxy-mihomo-2BB3A3)](https://github.com/MetaCubeX/mihomo)
 [![Shell: Bash](https://img.shields.io/badge/shell-Bash-4EAA25?logo=gnubash&logoColor=white)](claude-cage.sh)
 
+[**Beginner guide**](FOR-DUMMIES.md) •
 [Quick start](#quick-start) •
 [Usage](#usage) •
 [Examples](#examples) •
@@ -25,6 +26,12 @@
 </div>
 
 ---
+
+> [!IMPORTANT]
+> **Never used Linux, Docker or WSL?** Start with
+> **[FOR-DUMMIES.md](FOR-DUMMIES.md)**: a click-by-click install guide for
+> Linux and Windows, with a check after every step and fixes for common
+> errors.
 
 ## Overview
 
@@ -72,6 +79,10 @@ websites cannot recover the host's real position.
 - Optional: `/dev/dri` for GPU acceleration.
 
 ## Quick start
+
+> [!TIP]
+> New to Linux, Docker or WSL? [FOR-DUMMIES.md](FOR-DUMMIES.md) walks through
+> every step on Linux and Windows, with a check after each one.
 
 ```bash
 git clone https://github.com/ferrobit/claude-cage.git
@@ -751,6 +762,7 @@ proxies:
 
 ```text
 claude-cage/
+├── FOR-DUMMIES.md           # step-by-step install guide for beginners (Linux, Windows)
 ├── claude-cage.sh           # host-side wrapper (lifecycle, GUI and shell commands)
 ├── claude-cage.cmd          # Windows: one-command launcher (double-click)
 ├── claude-cage.ps1          # Windows: starts Docker Desktop, runs claude-cage.sh in WSL
