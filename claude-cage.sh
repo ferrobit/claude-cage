@@ -106,8 +106,12 @@ Inside the container:
   run <command...>      Run a command in the foreground
   exec <command...>     Alias for run
 
+Environment:
+  HOST_PROXY_PORT       Host SOCKS5 port (default: 7800, see compose.yml)
+
 Examples:
   $(basename "$0") up
+  HOST_PROXY_PORT=1080 $(basename "$0") up
   $(basename "$0") claude
   $(basename "$0") firefox
   $(basename "$0") run pacman -Q arc-kde-git

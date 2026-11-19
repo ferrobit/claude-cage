@@ -33,7 +33,8 @@ AUR package [`claude-desktop`](https://aur.archlinux.org/packages/claude-desktop
 All internet traffic leaves the container through
 [mihomo](https://github.com/MetaCubeX/mihomo), which runs inside the same
 container and has exactly one upstream: the host's SOCKS5 proxy on port
-`12005`. Any other outbound connection is dropped by a firewall.
+`7800` (configurable, see [Configuration](#configuration)). Any other
+outbound connection is dropped by a firewall.
 
 The container's timezone and language are set explicitly instead of being
 inherited from the host, and geolocation and WebRTC leaks are blocked, so
@@ -59,7 +60,8 @@ websites cannot recover the host's real position.
 
 - Linux host with Docker Engine and the Docker Compose v2 plugin.
 - An X11 or Wayland desktop session; `xhost` is used on X11.
-- A SOCKS5 proxy on host port `12005`, reachable from the Docker bridge
+- A SOCKS5 proxy on host port `7800` (or another port set by
+  `HOST_PROXY_PORT`), reachable from the Docker bridge
   (for example a port published by another container). A service bound only
   to the host's `127.0.0.1` is **not** reachable through
   `host.docker.internal`.
@@ -113,7 +115,7 @@ application. Use `./claude-cage.sh logs` if an application fails to start.
 
 ```bash
 ./claude-cage.sh run ss -ltnp
-# 127.0.0.1:12005  socat
+# 127.0.0.1:7800   socat
 # 127.0.0.1:7890   mihomo
 
 ./claude-cage.sh run curl -sS https://ifconfig.me
@@ -154,10 +156,10 @@ cp ~/Documents/report.pdf ~/Claude/
 flowchart LR
     subgraph cage["claude-cage container"]
         apps["Claude Desktop<br/>Firefox<br/>CLI tools"] -->|"HTTP / SOCKS5<br/>127.0.0.1:7890"| mihomo["mihomo"]
-        mihomo -->|"SOCKS5<br/>127.0.0.1:12005"| socat["socat"]
+        mihomo -->|"SOCKS5<br/>127.0.0.1:7800"| socat["socat"]
         other["Direct connections"] -.->|"dropped by iptables"| drop(("✕"))
     end
-    socat -->|"TCP<br/>host.docker.internal:12005"| host["Host SOCKS5 proxy"]
+    socat -->|"TCP<br/>host.docker.internal:7800"| host["Host SOCKS5 proxy"]
     host --> vps["Exit server"]
     vps --> net(("Internet"))
 ```
@@ -193,10 +195,12 @@ container does not join another container's network. No ports are published,
 and no extra Docker networks are used.
 
 - `mihomo/config.yaml` defines exactly one proxy, `host-proxy`, a SOCKS5
-  upstream at `127.0.0.1:12005`, and the single rule `MATCH,host-proxy`.
+  upstream at `127.0.0.1:7800`, and the single rule `MATCH,host-proxy`.
+  The file is a template: the entrypoint replaces `${HOST_PROXY_PORT}` at
+  container start, so the port is set only in `compose.yml`.
 - The entrypoint runs
-  `socat TCP-LISTEN:12005,bind=127.0.0.1,nodelay ... TCP:host.docker.internal:12005,nodelay`,
-  so container loopback port `12005` is the host's published SOCKS5 service.
+  `socat TCP-LISTEN:7800,bind=127.0.0.1,nodelay ... TCP:host.docker.internal:7800,nodelay`,
+  so container loopback port `7800` is the host's published SOCKS5 service.
   `host.docker.internal` is mapped by
   `extra_hosts: host.docker.internal:host-gateway`.
 - mihomo listens on the mixed HTTP/SOCKS5 port `127.0.0.1:7890` with
@@ -207,7 +211,7 @@ and no extra Docker networks are used.
   mihomo applies its rules.
 - The entrypoint installs an `OUTPUT` firewall (the container has
   `cap_add: NET_ADMIN`). It accepts loopback traffic, established replies and
-  TCP to the host gateway on port `12005`, and drops everything else. A
+  TCP to the host gateway on port `7800`, and drops everything else. A
   process that ignores the proxy settings cannot fall back to the host's
   internet connection.
 - Claude Desktop is started with `--proxy-server=http://127.0.0.1:7890`,
@@ -224,8 +228,8 @@ of being held back and merged:
 | Hop | Setting | Where |
 |---|---|---|
 | application → mihomo (`127.0.0.1:7890`) | `TCP_NODELAY`, set by mihomo (the Go runtime enables it by default) | built in |
-| mihomo → socat (`127.0.0.1:12005`) | `TCP_NODELAY` on both ends: mihomo by default, socat by `nodelay` | `mihomo/entrypoint.sh` |
-| socat → host SOCKS5 (`host.docker.internal:12005`) | `TCP_NODELAY` by `nodelay` | `mihomo/entrypoint.sh` |
+| mihomo → socat (`127.0.0.1:7800`) | `TCP_NODELAY` on both ends: mihomo by default, socat by `nodelay` | `mihomo/entrypoint.sh` |
+| socat → host SOCKS5 (`host.docker.internal:7800`) | `TCP_NODELAY` by `nodelay` | `mihomo/entrypoint.sh` |
 | every TCP socket in the container | `net.ipv4.tcp_autocorking: 0` (no kernel-side merging of small writes) | `compose.yml` → `sysctls:` |
 
 `TCP_NODELAY` turns off Nagle's algorithm, which delays a small packet until
@@ -478,7 +482,7 @@ other host folder is visible.
 
 | What | Where |
 |---|---|
-| Upstream SOCKS5 port (`12005`) | `mihomo/config.yaml`, `mihomo/entrypoint.sh` |
+| Upstream SOCKS5 port (`7800`) | `HOST_PROXY_PORT` in `compose.yml`, or at launch: `HOST_PROXY_PORT=1080 ./claude-cage.sh up` |
 | Local mixed proxy port (`7890`) | `mihomo/config.yaml`, `compose.yml`, `compose.dockerfile` |
 | Timezone, language, geolocation | see [Timezone, language and geolocation](#timezone-language-and-geolocation) |
 | Shared host folder (`~/Claude`) | `compose.yml` |
@@ -493,7 +497,7 @@ proxies:
   - name: host-proxy
     type: socks5
     server: 127.0.0.1
-    port: 12005
+    port: ${HOST_PROXY_PORT}
     username: <user>
     password: <password>
     udp: false

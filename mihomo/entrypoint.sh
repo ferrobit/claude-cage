@@ -7,12 +7,39 @@
 # transient host-side hiccup does not permanently take the container offline.
 set -eu
 
-HOST_PROXY_PORT=12005
+# The host's SOCKS5 port comes from compose.yml (HOST_PROXY_PORT), which is
+# the only place that defines it.
+HOST_PROXY_PORT="${HOST_PROXY_PORT:-}"
+case "$HOST_PROXY_PORT" in
+    ''|0*|*[!0-9]*)
+        echo "claude-cage: invalid HOST_PROXY_PORT '${HOST_PROXY_PORT}'" >&2
+        exit 1
+        ;;
+esac
+if [ "$HOST_PROXY_PORT" -gt 65535 ]; then
+    echo "claude-cage: invalid HOST_PROXY_PORT '${HOST_PROXY_PORT}'" >&2
+    exit 1
+fi
 
-# Forward 127.0.0.1:12005 inside the container to the host's SOCKS5 port.
-# This keeps mihomo's proxy entry exactly `127.0.0.1:12005` without exposing
-# any additional listener.  `nodelay` sets TCP_NODELAY on both sockets: socat
-# otherwise leaves Nagle's algorithm on, which holds small packets back.
+MIHOMO_DIR=/var/lib/mihomo
+MIHOMO_CONFIG="$MIHOMO_DIR/config.yaml"
+
+# /etc/mihomo/config.yaml is a template: write the runtime copy with the
+# actual port, so changing the port needs no image rebuild.
+render_mihomo_config() {
+    sed "s/[\$]{HOST_PROXY_PORT}/${HOST_PROXY_PORT}/g" \
+        /etc/mihomo/config.yaml > "$MIHOMO_CONFIG"
+    if grep -qF '${HOST_PROXY_PORT}' "$MIHOMO_CONFIG"; then
+        echo "claude-cage: failed to render $MIHOMO_CONFIG" >&2
+        exit 1
+    fi
+}
+
+# Forward 127.0.0.1:HOST_PROXY_PORT inside the container to the same port on
+# the host.  This keeps mihomo's proxy entry exactly
+# `127.0.0.1:HOST_PROXY_PORT` without exposing any additional listener.
+# `nodelay` sets TCP_NODELAY on both sockets: socat otherwise leaves Nagle's
+# algorithm on, which holds small packets back.
 forward_loop() {
     while :; do
         socat TCP-LISTEN:${HOST_PROXY_PORT},bind=127.0.0.1,fork,reuseaddr,nodelay \
@@ -25,7 +52,7 @@ forward_loop() {
 # connection through host-proxy.
 mihomo_loop() {
     while :; do
-        mihomo -d /var/lib/mihomo -f /etc/mihomo/config.yaml || true
+        mihomo -d "$MIHOMO_DIR" -f "$MIHOMO_CONFIG" || true
         sleep 2
     done
 }
@@ -58,6 +85,7 @@ apply_egress_firewall() {
     fi
 }
 
+render_mihomo_config
 apply_egress_firewall
 forward_loop &
 mihomo_loop &

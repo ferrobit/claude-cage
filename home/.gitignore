@@ -1,0 +1,4 @@
+# Runtime state of the container home.  Keep the directory (and this file) in
+# git, but do not track the files the container creates.
+*
+!.gitignore

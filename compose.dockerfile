@@ -269,9 +269,11 @@ RUN set -eux; \
 #
 # mihomo listens on container loopback (mixed-port 7890) and sends every
 # connection to the host's SOCKS5 proxy.  The entrypoint also forwards
-# container 127.0.0.1:12005 to the host's published port, so the proxy entry
-# stays exactly `127.0.0.1:12005`.  No ports are published and the container
-# is not attached to any other container's network.
+# container 127.0.0.1:HOST_PROXY_PORT to the same host port and renders
+# config.yaml with that port, so the proxy entry stays exactly
+# `127.0.0.1:HOST_PROXY_PORT`.  The port is set in compose.yml.  No ports are
+# published and the container is not attached to any other container's
+# network.
 # ---------------------------------------------------------------------------
 COPY --from=mihomo /mihomo /usr/local/bin/mihomo
 COPY mihomo/config.yaml /etc/mihomo/config.yaml
