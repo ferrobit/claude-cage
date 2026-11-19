@@ -15,6 +15,9 @@
       3. ~/claude-cage in the default WSL distribution.
 
     `shortcut` as the only argument creates a desktop shortcut instead.
+    `menu-install <icon dir> <apps...>` and `menu-remove` manage the Start
+    menu folder "claude-cage"; claude-cage.sh calls them through WSL interop
+    after `up`.
 
 .EXAMPLE
     .\claude-cage.ps1
@@ -31,6 +34,11 @@
 Set-StrictMode -Version 2.0
 
 $DockerTimeoutSeconds = 180
+$MenuNames = @{
+    claude = 'Claude (cage)'
+    firefox = 'Firefox (cage)'
+    chromium = 'Chromium (cage)'
+}
 
 function Fail([string]$Message) {
     Write-Host "claude-cage: $Message" -ForegroundColor Red
@@ -102,10 +110,113 @@ function New-Shortcut {
     Write-Host "claude-cage: created $file"
 }
 
+# Wrap a PNG into a single-image .ico file (Windows Vista and later read PNG
+# data inside .ico).  Width and height come from the PNG header; 0 means 256.
+function ConvertTo-Icon([string]$Png, [string]$Ico) {
+    $data = [IO.File]::ReadAllBytes($Png)
+    $width = ([int]$data[16] -shl 24) -bor ([int]$data[17] -shl 16) -bor ([int]$data[18] -shl 8) -bor [int]$data[19]
+    $height = ([int]$data[20] -shl 24) -bor ([int]$data[21] -shl 16) -bor ([int]$data[22] -shl 8) -bor [int]$data[23]
+    if ($width -gt 256 -or $height -gt 256) {
+        # NOTE: An .ico image is at most 256 x 256; scale larger PNGs down.
+        # Without System.Drawing the original PNG is kept as it is.  Types are
+        # looked up by name, so the function still loads where it is missing.
+        try {
+            Add-Type -AssemblyName System.Drawing
+            $pngStream = New-Object IO.MemoryStream(, $data)
+            $source = ('System.Drawing.Image' -as [type])::FromStream($pngStream)
+            $bitmap = New-Object -TypeName System.Drawing.Bitmap -ArgumentList 256, 256
+            $graphics = ('System.Drawing.Graphics' -as [type])::FromImage($bitmap)
+            $graphics.InterpolationMode = 'HighQualityBicubic'
+            $graphics.DrawImage($source, 0, 0, 256, 256)
+            $output = New-Object IO.MemoryStream
+            $bitmap.Save($output, ('System.Drawing.Imaging.ImageFormat' -as [type])::Png)
+            $data = $output.ToArray()
+            $width = 256
+            $height = 256
+            $graphics.Dispose()
+            $bitmap.Dispose()
+            $source.Dispose()
+        } catch {
+            Write-Host "claude-cage: kept '$Png' at ${width}x${height}: $($_.Exception.Message)"
+        }
+    }
+    $stream = New-Object IO.MemoryStream
+    $writer = New-Object IO.BinaryWriter($stream)
+    $writer.Write([UInt16]0)
+    $writer.Write([UInt16]1)
+    $writer.Write([UInt16]1)
+    $writer.Write([byte]$(if ($width -ge 256) { 0 } else { $width }))
+    $writer.Write([byte]$(if ($height -ge 256) { 0 } else { $height }))
+    $writer.Write([byte]0)
+    $writer.Write([byte]0)
+    $writer.Write([UInt16]1)
+    $writer.Write([UInt16]32)
+    $writer.Write([UInt32]$data.Length)
+    $writer.Write([UInt32]22)
+    $writer.Write($data)
+    $writer.Flush()
+    [IO.File]::WriteAllBytes($Ico, $stream.ToArray())
+    $writer.Dispose()
+}
+
+function Get-MenuFolder {
+    return Join-Path ([Environment]::GetFolderPath('Programs')) 'claude-cage'
+}
+
+function Get-IconFolder {
+    return Join-Path $Env:LOCALAPPDATA 'claude-cage\icons'
+}
+
+# Start menu entries for container applications.  Each shortcut runs the
+# .cmd launcher with `open <app>`, which starts Docker Desktop and the
+# container when needed; the console window starts minimized.
+function Install-Menu([string]$IconSource, [string[]]$Apps) {
+    $menu = Get-MenuFolder
+    $icons = Get-IconFolder
+    New-Item -ItemType Directory -Force -Path $menu, $icons | Out-Null
+    $shell = New-Object -ComObject WScript.Shell
+    foreach ($app in $Apps) {
+        if (-not $MenuNames.ContainsKey($app)) {
+            continue
+        }
+        $link = $shell.CreateShortcut((Join-Path $menu "$($MenuNames[$app]).lnk"))
+        $link.TargetPath = Join-Path $PSScriptRoot 'claude-cage.cmd'
+        $link.Arguments = "open $app"
+        $link.WorkingDirectory = [Environment]::GetFolderPath('UserProfile')
+        $link.WindowStyle = 7
+        $link.Description = "$($MenuNames[$app]) from the claude-cage container"
+        $png = Join-Path $IconSource "$app.png"
+        if (Test-Path -LiteralPath $png) {
+            $ico = Join-Path $icons "$app.ico"
+            ConvertTo-Icon $png $ico
+            $link.IconLocation = "$ico,0"
+        }
+        $link.Save()
+    }
+    Write-Host "claude-cage: Start menu entries installed in $menu"
+}
+
+function Remove-Menu {
+    foreach ($path in @((Get-MenuFolder), (Split-Path (Get-IconFolder) -Parent))) {
+        if (Test-Path -LiteralPath $path) {
+            Remove-Item -LiteralPath $path -Recurse -Force
+        }
+    }
+    Write-Host "claude-cage: Start menu entries removed"
+}
+
+$cageArgs = @($args | ForEach-Object { [string]$_ })
+if ($cageArgs.Count -ge 2 -and $cageArgs[0] -eq 'menu-install') {
+    Install-Menu $cageArgs[1] @($cageArgs | Select-Object -Skip 2)
+    exit 0
+}
+if ($cageArgs.Count -eq 1 -and $cageArgs[0] -eq 'menu-remove') {
+    Remove-Menu
+    exit 0
+}
 if (-not (Get-Command wsl.exe -ErrorAction SilentlyContinue)) {
     Fail "wsl.exe not found; install WSL with: wsl --install -d Ubuntu"
 }
-$cageArgs = @($args | ForEach-Object { [string]$_ })
 if ($cageArgs.Count -eq 1 -and $cageArgs[0] -eq 'shortcut') {
     New-Shortcut
     exit 0

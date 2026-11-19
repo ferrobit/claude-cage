@@ -200,6 +200,11 @@ Other programs work the same way:
 ./claude-cage.sh dolphin     # file manager inside the container
 ```
 
+**Even easier:** after step 8 your normal application menu has three new
+entries — **Claude (cage)**, **Firefox (cage)** and **Chromium (cage)**. Click
+one and it opens from the container; the container is started first if it is
+stopped. Pin them to the panel like any other program.
+
 ### Step 10. Make sure the traffic really goes through the proxy
 
 ```bash
@@ -219,14 +224,14 @@ the left sidebar of the file dialog. Files Claude saves there appear in your
 
 | I want to | Type in `~/claude-cage` |
 |---|---|
-| Open Claude | `./claude-cage.sh claude` |
+| Open Claude | Application menu → **Claude (cage)**, or `./claude-cage.sh claude` |
+| Open Firefox / Chromium | Application menu → **Firefox (cage)** / **Chromium (cage)** |
 | Stop everything | `./claude-cage.sh down` |
 | Start again | `./claude-cage.sh up` |
 | See what is wrong | `./claude-cage.sh logs` (exit with Ctrl + C) |
 | Update claude-cage | `git pull && ./claude-cage.sh up` |
 
-After a reboot the container starts by itself. You only need
-`./claude-cage.sh claude` to open the window.
+After a reboot the container starts by itself. Just click the menu entry.
 
 ---
 
@@ -443,7 +448,12 @@ inside Ubuntu instead.
 
 ### Step 15. Other programs
 
-Run these in Ubuntu inside `~/claude-cage`:
+After the first start the **Start** menu has a new folder **claude-cage**
+with **Claude (cage)**, **Firefox (cage)** and **Chromium (cage)**. Click one
+to open it; Docker Desktop and the container are started first when needed.
+Right-click an entry → **Pin to Start** or **Pin to taskbar** to keep it handy.
+
+Or run these in Ubuntu inside `~/claude-cage`:
 
 ```bash
 ./claude-cage.sh firefox
@@ -455,8 +465,8 @@ Run these in Ubuntu inside `~/claude-cage`:
 
 | I want to | Do this |
 |---|---|
-| Open Claude | Double-click the desktop shortcut |
-| Open Firefox / Chromium | In Ubuntu: `cd ~/claude-cage && ./claude-cage.sh firefox` (or `chromium`) |
+| Open Claude | Double-click the desktop shortcut, or **Start** → **Claude (cage)** |
+| Open Firefox / Chromium | **Start** → **Firefox (cage)** / **Chromium (cage)** |
 | Stop everything | In Ubuntu: `cd ~/claude-cage && ./claude-cage.sh down` |
 | Update claude-cage | In Ubuntu: `cd ~/claude-cage && git pull`, then double-click the shortcut |
 
@@ -482,6 +492,7 @@ the container back. The shortcut also starts Docker Desktop when needed.
 | The window never appears (Windows) | In Ubuntu: `ls /mnt/wslg/.X11-unix` must show `X0`. If not: `wsl --update` and restart Windows |
 | The window never appears (Linux) | Install `xhost` (`sudo apt install x11-xserver-utils`, on Arch `sudo pacman -S xorg-xhost`) and try again |
 | Claude opens but cannot load anything | The proxy is off or unreachable: repeat the proxy check (step 4 on Linux, step 7 on Windows), then `./claude-cage.sh restart`. On Linux a firewall such as `ufw` may also block containers from reaching the port |
+| No **(cage)** entries in the menu | Run `./claude-cage.sh menu` in `~/claude-cage` (container must be running); on KDE they can take a few seconds to show up |
 | Everything is slow on Windows | Normal: on Windows the container has no graphics card and draws with the CPU |
 
 Still stuck? Run `./claude-cage.sh logs`, wait 10 seconds, press Ctrl + C and

@@ -119,9 +119,28 @@ cd claude-cage
 | `kate [args...]` | Launch Kate |
 | `shell` | Open an interactive login shell inside the container |
 | `run <command...>` | Run a command inside the container (`exec` is an alias) |
+| `menu` | Add or refresh the menu entries (done automatically by `up` and `restart`) |
+| `menu-remove` | Remove the menu entries |
+| `open <app> [args...]` | Start the container if needed, then launch `claude`, `firefox`, `chromium`, … |
 
 GUI commands run detached and return immediately after launching the
 application. Use `./claude-cage.sh logs` if an application fails to start.
+
+### Menu entries
+
+`up` and `restart` add **Claude (cage)**, **Firefox (cage)** and
+**Chromium (cage)** to the host's application menu, with the icons taken from
+the image. Each entry runs `claude-cage.sh open <app>`, which starts the
+container first when it is not running.
+
+| Host | Where the entries go | Icons |
+|---|---|---|
+| Linux | `~/.local/share/applications/claude-cage-*.desktop` | `~/.local/share/claude-cage/icons/` |
+| Windows (WSL) | Start menu → folder **claude-cage** (`%APPDATA%\Microsoft\Windows\Start Menu\Programs\claude-cage`) | `%LOCALAPPDATA%\claude-cage\icons\` (`.ico`) |
+
+On Windows the shortcuts are created through WSL interop by
+`claude-cage.ps1`. If the repository moves, run `./claude-cage.sh menu` again;
+`./claude-cage.sh menu-remove` deletes the entries and icons.
 
 ## Examples
 
