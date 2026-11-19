@@ -1,0 +1,22 @@
+# Windows override for claude-cage: WSL2 + WSLg + Docker Desktop.
+#
+# claude-cage.sh adds this file automatically when it runs inside WSL; there
+# is no need to pass it by hand.  It adapts the Linux service definition in
+# compose.yml to WSLg, which provides the X11, Wayland and PulseAudio servers
+# under /mnt/wslg (see https://github.com/microsoft/wslg).
+services:
+  claude-cage:
+    # WSL2 exposes the GPU as /dev/dxg, not /dev/dri, so `devices:` from
+    # compose.yml would fail.  Rendering falls back to software (llvmpipe).
+    # `!reset` needs Docker Compose 2.24 or later.
+    devices: !reset []
+    environment:
+      PULSE_SERVER: unix:/mnt/wslg/PulseServer
+    volumes:
+      # WSLg servers: the X11 socket directory (the real one behind the
+      # /tmp/.X11-unix link), the Wayland runtime directory and PulseAudio.
+      - "/mnt/wslg/.X11-unix:/tmp/.X11-unix:ro"
+      - "/mnt/wslg:/mnt/wslg:rw"
+      # The distro's system bus is of no use to the container and may not
+      # exist without systemd; /dev/null replaces the host socket mount.
+      - "/dev/null:/run/dbus/system_bus_socket:ro"

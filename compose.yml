@@ -103,7 +103,9 @@ services:
       # dialog (see mihomo/entrypoint.sh), so it appears in the sidebar.
       # Read-write so Claude can save files there; every other host folder
       # stays hidden from the container.
-      - "${HOME}/Claude:/home/${USER:-user}/Claude:rw"
+      # CLAUDE_SHARE_DIR selects another host folder (on Windows, for example
+      # /mnt/c/Users/<name>/Claude).
+      - "${CLAUDE_SHARE_DIR:-${HOME}/Claude}:/home/${USER:-user}/Claude:rw"
 
       # Host Xauthority file (read-only, single file, not the home directory).
       # The wrapper sets XAUTHORITY_FILE; when unset, /dev/null is a harmless

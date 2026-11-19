@@ -13,7 +13,7 @@ will find:
 |---|---|---|
 | `.config/plasma-localerc` | entrypoint, first start | KDE language and formats, taken from `LANG` and `LANGUAGE` |
 | `.config/gtk-3.0/bookmarks` | entrypoint, first start | the **Claude (host)** entry in the file dialog |
-| `Claude/` | Docker | mount point of the host's `~/Claude`; on this side it stays empty |
+| `Claude/` | Docker | mount point of the host's `~/Claude` (or `CLAUDE_SHARE_DIR`); on this side it stays empty |
 | `.config/Claude/` | Claude Desktop | settings, sign-in session, local data |
 | `.config/mozilla/firefox/` | Firefox | browser profile: cookies, history, saved logins |
 | `.config/chromium/` | Chromium | browser profile: cookies, history, saved logins |

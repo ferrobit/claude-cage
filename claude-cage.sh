@@ -23,6 +23,27 @@ export HOME="${HOME:-$(getent passwd "$HOST_USER" | cut -d: -f6)}"
 export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$HOST_UID}"
 export DISPLAY="${DISPLAY:-:0}"
 
+# Host folder shared with the container as ~/Claude.  On Windows (WSL) it may
+# point to a Windows folder, for example /mnt/c/Users/<name>/Claude.
+export CLAUDE_SHARE_DIR="${CLAUDE_SHARE_DIR:-$HOME/Claude}"
+
+# Windows: WSL2 with WSLg.  The X11, Wayland and PulseAudio servers live
+# under /mnt/wslg and there is no /dev/dri; compose.wsl.yml adapts the
+# service, and the variables below point the GUI helpers at WSLg.
+is_wsl() {
+    [ -n "${WSL_DISTRO_NAME:-}" ] || grep -qi microsoft /proc/sys/kernel/osrelease 2>/dev/null
+}
+PULSE_SERVER_URI="unix:$XDG_RUNTIME_DIR/pulse/native"
+if is_wsl; then
+    if [ ! -S /mnt/wslg/.X11-unix/X0 ]; then
+        echo "error: WSLg is not available (no /mnt/wslg/.X11-unix/X0); update WSL with: wsl --update" >&2
+        exit 1
+    fi
+    export XDG_RUNTIME_DIR=/mnt/wslg/runtime-dir
+    export WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-wayland-0}"
+    PULSE_SERVER_URI="unix:/mnt/wslg/PulseServer"
+fi
+
 # Compose cannot run `id`, so resolve supplementary device/audio GIDs here.
 group_gid() {
     getent group "$1" 2>/dev/null | cut -d: -f3 || true
@@ -51,6 +72,9 @@ else
 fi
 
 COMPOSE=(docker compose --project-name "$PROJECT_NAME" -f "$COMPOSE_FILE")
+if is_wsl; then
+    COMPOSE+=(-f "$SCRIPT_DIR/compose.wsl.yml")
+fi
 
 # A process with our UID must be allowed to talk to the host X server.  This
 # is sufficient for both Xorg and XWayland; it does not grant access to other
@@ -72,7 +96,7 @@ container_xauthority() {
 # bind-mounted into it (see compose.yml), so create it as the user as well.
 ensure_home() {
     mkdir -p "$SCRIPT_DIR/home"
-    mkdir -p "$HOME/Claude"
+    mkdir -p "$CLAUDE_SHARE_DIR"
 }
 
 require_container() {
@@ -109,6 +133,7 @@ Inside the container:
 
 Environment:
   HOST_PROXY_PORT       Host SOCKS5 port (default: 7800, see compose.yml)
+  CLAUDE_SHARE_DIR      Host folder shared as ~/Claude (default: ~/Claude)
 
 Examples:
   $(basename "$0") up
@@ -130,7 +155,7 @@ run_gui() {
         -e XDG_RUNTIME_DIR="$XDG_RUNTIME_DIR" \
         -e XDG_SESSION_TYPE="${XDG_SESSION_TYPE:-x11}" \
         -e DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus" \
-        -e PULSE_SERVER="unix:$XDG_RUNTIME_DIR/pulse/native" \
+        -e PULSE_SERVER="$PULSE_SERVER_URI" \
         "$CONTAINER_NAME" "$@"
 }
 
@@ -150,7 +175,7 @@ run_interactive() {
         -e XDG_RUNTIME_DIR="$XDG_RUNTIME_DIR" \
         -e XDG_SESSION_TYPE="${XDG_SESSION_TYPE:-x11}" \
         -e DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus" \
-        -e PULSE_SERVER="unix:$XDG_RUNTIME_DIR/pulse/native" \
+        -e PULSE_SERVER="$PULSE_SERVER_URI" \
         "$CONTAINER_NAME" "$@"
 }
 

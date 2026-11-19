@@ -7,7 +7,7 @@
 **Claude Desktop in a Manjaro KDE container whose only way to the internet is a single SOCKS5 proxy.**
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Platform: Linux](https://img.shields.io/badge/platform-Linux-informational?logo=linux&logoColor=white)](#requirements)
+[![Platform: Linux | Windows](https://img.shields.io/badge/platform-Linux%20%7C%20Windows%20(WSL2)-informational?logo=linux&logoColor=white)](#requirements)
 [![Docker Compose](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)](https://docs.docker.com/compose/)
 [![Manjaro](https://img.shields.io/badge/base-Manjaro-35BF5C?logo=manjaro&logoColor=white)](https://hub.docker.com/r/manjarolinux/base)
 [![KDE Plasma](https://img.shields.io/badge/desktop-KDE%20Plasma-1D99F3?logo=kde&logoColor=white)](https://kde.org/plasma-desktop/)
@@ -19,6 +19,7 @@
 [Examples](#examples) •
 [How it works](#how-it-works) •
 [Timezone & language](#timezone-language-and-geolocation) •
+[Windows](#windows-wsl2) •
 [Notes](#notes-and-limitations)
 
 </div>
@@ -58,12 +59,13 @@ websites cannot recover the host's real position.
 
 ## Requirements
 
-- Linux host with Docker Engine and the Docker Compose v2 plugin.
+- Linux host with Docker Engine and the Docker Compose v2 plugin. On
+  Windows, see [Windows (WSL2)](#windows-wsl2).
 - An X11 or Wayland desktop session; `xhost` is used on X11.
 - A SOCKS5 proxy on host port `7800` (or another port set by
   `HOST_PROXY_PORT`), reachable from the Docker bridge
-  (for example a port published by another container). A service bound only
-  to the host's `127.0.0.1` is **not** reachable through
+  (for example a port published by another container). On Linux a service
+  bound only to the host's `127.0.0.1` is **not** reachable through
   `host.docker.internal`.
 - Several gigabytes of free disk space and direct internet access during
   `docker build`.
@@ -503,8 +505,9 @@ profiles: the first time you launch Claude Desktop, Firefox or Chromium, you
 will need to sign in again. Copy any configuration you want into `./home`
 yourself; it stays on the host after the container is removed.
 
-The host's `~/Claude` is the only exception. It is bind-mounted read-write at
-the same path (`/home/$USER/Claude`) and bookmarked as **Claude (host)** in the
+The host's `~/Claude` is the only exception (`CLAUDE_SHARE_DIR` selects
+another host folder). It is bind-mounted read-write at the same path
+(`/home/$USER/Claude`) and bookmarked as **Claude (host)** in the
 standard file dialog (the entry is seeded in `~/.config/gtk-3.0/bookmarks`).
 Files placed there on the host can be opened and saved from Claude Desktop; no
 other host folder is visible.
@@ -513,6 +516,172 @@ other host folder is visible.
 > To give Claude read-only access to the hand-off folder, change `:rw` to
 > `:ro` on the `~/Claude` mount in `compose.yml`.
 
+## Windows (WSL2)
+
+claude-cage also runs on Windows 10 and 11 through WSL2 (Windows Subsystem
+for Linux) and Docker Desktop. The container windows open on the Windows
+desktop through WSLg, the graphics layer built into WSL. The wrapper detects
+WSL by itself and adds `compose.wsl.yml` to every Compose command; nothing has
+to be switched by hand.
+
+> [!NOTE]
+> Windows support is new. If something does not work, please open an issue
+> with the output of `wsl --version`, `docker version` and
+> `./claude-cage.sh logs`.
+
+### What changes on Windows
+
+| Part | Linux | Windows (WSL2) |
+|---|---|---|
+| Windows on screen | host X11/Wayland sockets | WSLg: `/mnt/wslg/.X11-unix` and `/mnt/wslg/runtime-dir` |
+| Sound | host PulseAudio/PipeWire socket | WSLg: `/mnt/wslg/PulseServer` |
+| GPU | `/dev/dri` | none: WSL2 exposes the GPU as `/dev/dxg`, so rendering is done in software |
+| Session D-Bus | host session bus | none |
+| System D-Bus | host socket | not shared (replaced by `/dev/null`) |
+| Host SOCKS5 proxy | Docker bridge → host port | Docker Desktop → Windows `127.0.0.1:<port>` |
+| Shared folder `~/Claude` | `~/Claude` on the host | `~/Claude` inside WSL, or any Windows folder via `CLAUDE_SHARE_DIR` |
+
+All other parts — the image, mihomo, the egress firewall, the timezone and
+language settings — are the same as on Linux.
+
+### Step 1. Install WSL and Ubuntu
+
+In PowerShell **as administrator**:
+
+```powershell
+wsl --install -d Ubuntu
+```
+
+Restart Windows, open **Ubuntu** from the Start menu and create the Linux user.
+Then update WSL and check that WSLg is present:
+
+```powershell
+wsl --update
+wsl --version   # the output must contain a "WSLg version" line
+```
+
+### Step 2. Install Docker Desktop
+
+1. Install [Docker Desktop](https://docs.docker.com/desktop/setup/install/windows-install/).
+2. Settings → General → enable **Use the WSL 2 based engine**.
+3. Settings → Resources → WSL integration → enable **Ubuntu** → Apply & restart.
+
+Check from the Ubuntu terminal (Compose 2.24 or later is required for
+`compose.wsl.yml`):
+
+```bash
+docker version
+docker compose version
+```
+
+### Step 3. Clone the repository inside WSL
+
+Run every command from the **Ubuntu terminal**, not from PowerShell, and keep
+the repository in the Linux file system:
+
+```bash
+cd ~
+git clone https://github.com/ferrobit/claude-cage.git
+cd claude-cage
+```
+
+Do not clone into `C:\` or `/mnt/c/...`: bind mounts from the Windows file
+system are much slower, and `./home` needs Linux ownership and permissions.
+`.gitattributes` keeps LF line endings in the scripts on any checkout.
+
+### Step 4. Start the SOCKS5 proxy on Windows
+
+Run your SOCKS5 client on Windows with a listener on port `7800` (or set
+another port with `HOST_PROXY_PORT`, see [Configuration](#configuration)).
+Docker Desktop forwards `host.docker.internal` to the Windows host, so a
+listener bound to Windows `127.0.0.1` is enough here — unlike on Linux.
+
+### Step 5. Choose the shared folder
+
+**Option A — a folder inside WSL (recommended).** Keep the default
+`~/Claude` in Ubuntu and open it from Windows Explorer:
+
+```text
+\\wsl.localhost\Ubuntu\home\<user>\Claude
+```
+
+On older Windows 10 builds the path starts with `\\wsl$\` instead. Right-click
+the folder → **Pin to Quick access** to keep it one click away, or open it
+from the Ubuntu terminal with `explorer.exe ~/Claude`. Files keep Linux
+ownership, and access is fast on both sides.
+
+**Option B — a Windows folder.** Point `CLAUDE_SHARE_DIR` at a folder on the
+Windows drive, for example `C:\Users\<name>\Claude`:
+
+```bash
+mkdir -p /mnt/c/Users/<name>/Claude
+echo 'export CLAUDE_SHARE_DIR=/mnt/c/Users/<name>/Claude' >> ~/.bashrc
+source ~/.bashrc
+./claude-cage.sh up    # recreates the container with the new mount
+```
+
+The folder is then an ordinary Windows folder, but access to it from the
+container is slower. If Claude Desktop cannot save files there, go back to
+option A.
+
+In both cases the folder appears in the container at `~/Claude` and as
+**Claude (host)** in the file dialog, exactly as on Linux.
+
+### Step 6. Start with one command
+
+`claude-cage.cmd` starts everything from Windows: it launches Docker Desktop
+when it is not running, brings the container up (the first run builds the
+image, which takes a while) and opens Claude Desktop. Double-click it in
+Explorer, or run it from PowerShell or `cmd`:
+
+```powershell
+\\wsl.localhost\Ubuntu\home\<user>\claude-cage\claude-cage.cmd
+```
+
+Create a desktop shortcut **Claude (cage)** once, then start from it:
+
+```powershell
+\\wsl.localhost\Ubuntu\home\<user>\claude-cage\claude-cage.cmd shortcut
+```
+
+Any other arguments go to `claude-cage.sh` unchanged:
+
+```powershell
+.\claude-cage.cmd chromium   # open Chromium
+.\claude-cage.cmd down       # stop the container
+.\claude-cage.cmd shell      # shell inside the container
+```
+
+The launcher (`claude-cage.ps1`, started by the `.cmd` file) finds the WSL
+distribution and the repository path from its own `\\wsl.localhost\...`
+location. A copy kept elsewhere on Windows uses `~/claude-cage` in the default
+distribution, or the `CLAUDE_CAGE_DISTRO` and `CLAUDE_CAGE_PATH` environment
+variables. The same steps work from the Ubuntu terminal:
+
+```bash
+./claude-cage.sh up
+./claude-cage.sh claude
+```
+
+Claude Desktop, Firefox, Chromium and the KDE applications open as separate
+windows on the Windows desktop. Check the egress path:
+
+```bash
+./claude-cage.sh run curl -sS https://ifconfig.me   # the proxy's address
+```
+
+### Limitations on Windows
+
+- **No GPU acceleration.** Video, WebGL and animations use the CPU.
+- **No session D-Bus.** KWallet, desktop notifications and tray icons are not
+  available; applications fall back to their own storage and behaviour.
+- **WSLg is required.** The wrapper stops with an error when
+  `/mnt/wslg/.X11-unix/X0` is missing; run `wsl --update` and restart WSL
+  with `wsl --shutdown`.
+- **Resources.** The first build needs several gigabytes of disk space and
+  memory inside the WSL virtual machine; its limits are set in
+  `%UserProfile%\.wslconfig`.
+
 ## Configuration
 
 | What | Where |
@@ -520,8 +689,8 @@ other host folder is visible.
 | Upstream SOCKS5 port (`7800`) | `HOST_PROXY_PORT` in `compose.yml`, or at launch: `HOST_PROXY_PORT=1080 ./claude-cage.sh up` |
 | Local mixed proxy port (`7890`) | `mihomo/config.yaml`, `compose.yml`, `compose.dockerfile` |
 | Timezone, language, geolocation | see [Timezone, language and geolocation](#timezone-language-and-geolocation) |
-| Shared host folder (`~/Claude`) | `compose.yml` |
-| GPU device (`/dev/dri`) | `compose.yml` → `devices:` |
+| Shared host folder (`~/Claude`) | `CLAUDE_SHARE_DIR`, for example `CLAUDE_SHARE_DIR=/mnt/c/Users/<name>/Claude ./claude-cage.sh up` |
+| GPU device (`/dev/dri`) | `compose.yml` → `devices:` (removed on Windows by `compose.wsl.yml`) |
 
 If the host's SOCKS5 proxy requires authentication, add the credentials to
 `host-proxy` in `mihomo/config.yaml`. `socat` forwards raw TCP, so no other
@@ -577,9 +746,13 @@ proxies:
 ```text
 claude-cage/
 ├── claude-cage.sh           # host-side wrapper (lifecycle, GUI and shell commands)
+├── claude-cage.cmd          # Windows: one-command launcher (double-click)
+├── claude-cage.ps1          # Windows: starts Docker Desktop, runs claude-cage.sh in WSL
 ├── compose.yml              # claude-cage desktop container
+├── compose.wsl.yml          # Windows override (WSLg, no /dev/dri), added automatically
 ├── compose.dockerfile       # Manjaro KDE + AUR arc-kde-git/claude-desktop
 ├── .dockerignore            # build context: Dockerfile + mihomo/ only
+├── .gitattributes           # LF line endings, also on Windows checkouts
 ├── docs/
 │   ├── logo.svg             # project logo (vector)
 │   ├── logo.png             # project logo, 512 px raster

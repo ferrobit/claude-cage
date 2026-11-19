@@ -1,0 +1,6 @@
+# Scripts and container files run on Linux: keep LF line endings even when
+# the repository is checked out on Windows.
+* text=auto eol=lf
+*.png binary
+# cmd.exe needs CRLF line endings.
+*.cmd text eol=crlf
