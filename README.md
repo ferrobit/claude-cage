@@ -109,6 +109,8 @@ cd claude-cage
 | `dolphin [args...]` | Launch Dolphin |
 | `konsole [args...]` | Launch Konsole |
 | `kate [args...]` | Launch Kate |
+| `install-menu` | Add a **Codespace** section with the container's applications to the host menu |
+| `uninstall-menu` | Remove the **Codespace** section from the host menu |
 | `shell` | Open an interactive login shell inside the container |
 | `run <command...>` | Run a command inside the container (`exec` is an alias) |
 
@@ -124,6 +126,39 @@ so a desktop shortcut can launch Claude Desktop in one step:
 ```bash
 ./claude-cage.sh --up claude
 ```
+
+### Host menu
+
+`install-menu` adds a **Codespace** section to the host's application menu
+(next to Office, System, Utilities, …) with Claude Desktop, Firefox, Brave,
+Dolphin, Konsole, Kate and a container shell:
+
+```bash
+./claude-cage.sh build          # once, so the icons can be taken from the image
+./claude-cage.sh install-menu
+```
+
+Every entry runs `claude-cage.sh --up <application>`, so the container starts
+on demand. Only files in your home directory are written:
+
+| File | Purpose |
+|---|---|
+| `~/.local/share/applications/claude-cage-*.desktop` | one entry per application, category `X-Codespace` |
+| `~/.local/share/desktop-directories/claude-cage-codespace.directory` | name and icon of the section |
+| `~/.config/menus/applications-merged/claude-cage-codespace.menu` | XDG menu fragment that creates the section |
+| `~/.local/share/claude-cage/icons/` | icons copied from the image (Claude Desktop, Brave, …) |
+
+The icons are copied from a container that is created from the image but
+never started; applications without an icon in the image use the host's icon
+theme. The entries use only the `X-Codespace` category, so they do not show
+up twice under Internet or Utilities, and they register no file types, so the
+host's default browser stays as it is. On KDE the menu cache is rebuilt with
+`kbuildsycoca6`; other desktops pick the files up on their own or after the
+next login.
+
+The entries contain the absolute path of `claude-cage.sh`: after moving the
+project, run `install-menu` again. `uninstall-menu` removes exactly these
+files.
 
 ## Examples
 

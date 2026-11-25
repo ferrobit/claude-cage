@@ -12,6 +12,7 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 COMPOSE_FILE="$SCRIPT_DIR/compose.yml"
 PROJECT_NAME="claude-cage"
 CONTAINER_NAME="claude-cage"
+IMAGE_NAME="claude-cage"
 
 HOST_USER="$(id -un)"
 HOST_UID="$(id -u)"
@@ -145,6 +146,11 @@ Desktop / GUI:
   konsole [args...]     Launch Konsole on the host display
   kate [args...]        Launch Kate on the host display
 
+Host menu:
+  install-menu          Add a Codespace section with these applications to
+                        the host's application menu
+  uninstall-menu        Remove the Codespace section again
+
 Inside the container:
   shell                 Interactive bash shell
   run <command...>      Run a command in the foreground
@@ -191,6 +197,175 @@ run_interactive() {
         -e DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus" \
         -e PULSE_SERVER="unix:$XDG_RUNTIME_DIR/pulse/native" \
         "$CONTAINER_NAME" "$@"
+}
+
+# ---------------------------------------------------------------------------
+# Host menu
+#
+# install-menu adds a "Codespace" section to the host's application menu.
+# Every entry runs this script with --up, so the container starts on demand.
+# Only files under the user's home are written: desktop entries, a .directory
+# file, an XDG merged menu and icons copied from the image.
+# ---------------------------------------------------------------------------
+MENU_PREFIX="claude-cage"
+MENU_CATEGORY="X-Codespace"
+MENU_DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}"
+MENU_CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}"
+MENU_APPLICATIONS_DIR="$MENU_DATA_DIR/applications"
+MENU_DIRECTORIES_DIR="$MENU_DATA_DIR/desktop-directories"
+MENU_MERGED_DIR="$MENU_CONFIG_DIR/menus/applications-merged"
+MENU_ICONS_DIR="$MENU_DATA_DIR/$MENU_PREFIX/icons"
+MENU_DIRECTORY_FILE="$MENU_PREFIX-codespace.directory"
+MENU_FILE="$MENU_MERGED_DIR/$MENU_PREFIX-codespace.menu"
+
+# command|name|comment|binary in the image|fallback icon|field code|terminal
+MENU_ENTRIES=(
+    "claude|Claude Desktop|Claude Desktop in the claude-cage container|claude-desktop|claude-desktop||false"
+    "firefox|Firefox|Firefox in the claude-cage container|firefox|firefox|%U|false"
+    "brave|Brave|Brave in the claude-cage container|brave|brave-browser|%U|false"
+    "dolphin|Dolphin|Dolphin file manager in the claude-cage container|dolphin|org.kde.dolphin||false"
+    "konsole|Konsole|Konsole terminal in the claude-cage container|konsole|org.kde.konsole||false"
+    "kate|Kate|Kate text editor in the claude-cage container|kate|org.kde.kate||false"
+    "shell|Shell|Bash shell in the claude-cage container||utilities-terminal||true"
+)
+
+refresh_menu_cache() {
+    local tool
+    for tool in kbuildsycoca6 kbuildsycoca5; do
+        if command -v "$tool" >/dev/null 2>&1; then
+            "$tool" >/dev/null 2>&1 || true
+            return 0
+        fi
+    done
+}
+
+# The Exec key is written as a double-quoted argument; refuse the characters
+# that would need desktop-entry escaping instead of escaping them.
+menu_exec_path() {
+    local path="$SCRIPT_DIR/claude-cage.sh"
+    case "$path" in
+        *'"'*|*'`'*|*'$'*|*'\'*|*'%'*|*$'\n'*)
+            echo "error: cannot write menu entries for path: $path" >&2
+            exit 1
+            ;;
+    esac
+    printf '"%s"\n' "$path"
+}
+
+# Copy the icon of <binary> out of the image into MENU_ICONS_DIR and print the
+# value for the Icon key.  The image's desktop files are read from a
+# container that is created but never started.  When nothing can be copied,
+# the fallback icon name from the host's icon theme is printed instead.
+menu_icon() {
+    local source_id="$1" apps_dir="$2" command="$3" binary="$4" fallback="$5"
+    local desktop icon candidate extension
+    if [ -z "$source_id" ] || [ -z "$binary" ]; then
+        printf '%s\n' "$fallback"
+        return 0
+    fi
+    desktop="$(grep -l -E "^Exec=([^ ]*/)?$binary( |$)" "$apps_dir"/*.desktop 2>/dev/null | head -n 1)"
+    if [ -n "$desktop" ]; then
+        icon="$(sed -n 's/^Icon=//p' "$desktop" | head -n 1)"
+    fi
+    icon="${icon:-$fallback}"
+    for candidate in \
+        "$icon" \
+        "/usr/share/icons/hicolor/256x256/apps/$icon.png" \
+        "/usr/share/icons/hicolor/512x512/apps/$icon.png" \
+        "/usr/share/icons/hicolor/128x128/apps/$icon.png" \
+        "/usr/share/icons/hicolor/scalable/apps/$icon.svg" \
+        "/usr/share/pixmaps/$icon.png" \
+        "/usr/share/pixmaps/$icon.svg"; do
+        case "$candidate" in
+            /*) ;;
+            *) continue ;;
+        esac
+        extension="${candidate##*.}"
+        if docker cp -L "$source_id:$candidate" "$MENU_ICONS_DIR/$command.$extension" >/dev/null 2>&1; then
+            printf '%s\n' "$MENU_ICONS_DIR/$command.$extension"
+            return 0
+        fi
+    done
+    printf '%s\n' "$icon"
+}
+
+install_menu() {
+    local exec_path source_id="" apps_dir entry command name comment binary
+    local fallback field terminal icon exec_line directory_icon=""
+    exec_path="$(menu_exec_path)"
+    mkdir -p "$MENU_APPLICATIONS_DIR" "$MENU_DIRECTORIES_DIR" "$MENU_MERGED_DIR"
+    rm -rf "$MENU_ICONS_DIR"
+    mkdir -p "$MENU_ICONS_DIR"
+    apps_dir="$(mktemp -d)"
+    if docker image inspect "$IMAGE_NAME" >/dev/null 2>&1; then
+        source_id="$(docker create "$IMAGE_NAME" 2>/dev/null || true)"
+    else
+        echo "warning: image $IMAGE_NAME not found; using icons from the host theme" >&2
+        echo "         (run $0 build, then $0 install-menu again)" >&2
+    fi
+    if [ -n "$source_id" ]; then
+        docker cp "$source_id:/usr/share/applications/." "$apps_dir" >/dev/null 2>&1 || true
+    fi
+    for entry in "${MENU_ENTRIES[@]}"; do
+        IFS='|' read -r command name comment binary fallback field terminal <<<"$entry"
+        icon="$(menu_icon "$source_id" "$apps_dir" "$command" "$binary" "$fallback")"
+        if [ "$command" = claude ]; then
+            directory_icon="$icon"
+        fi
+        exec_line="$exec_path --up $command${field:+ $field}"
+        {
+            printf '%s\n' '[Desktop Entry]'
+            printf '%s\n' 'Type=Application'
+            printf '%s\n' 'Version=1.0'
+            printf 'Name=%s\n' "$name"
+            printf 'Comment=%s\n' "$comment"
+            printf 'Exec=%s\n' "$exec_line"
+            printf 'Icon=%s\n' "$icon"
+            printf 'Terminal=%s\n' "$terminal"
+            printf 'Categories=%s;\n' "$MENU_CATEGORY"
+        } > "$MENU_APPLICATIONS_DIR/$MENU_PREFIX-$command.desktop"
+    done
+    if [ -n "$source_id" ]; then
+        docker rm "$source_id" >/dev/null 2>&1 || true
+    fi
+    rm -rf "$apps_dir"
+    {
+        printf '%s\n' '[Desktop Entry]'
+        printf '%s\n' 'Type=Directory'
+        printf '%s\n' 'Version=1.0'
+        printf '%s\n' 'Name=Codespace'
+        printf '%s\n' 'Comment=Applications in the claude-cage container'
+        printf 'Icon=%s\n' "${directory_icon:-applications-development}"
+    } > "$MENU_DIRECTORIES_DIR/$MENU_DIRECTORY_FILE"
+    {
+        printf '%s\n' '<!DOCTYPE Menu PUBLIC "-//freedesktop//DTD Menu 1.0//EN"'
+        printf '%s\n' ' "http://www.freedesktop.org/standards/menu-spec/menu-1.0.dtd">'
+        printf '%s\n' '<Menu>'
+        printf '%s\n' '  <Name>Applications</Name>'
+        printf '%s\n' '  <Menu>'
+        printf '%s\n' '    <Name>Codespace</Name>'
+        printf '    <Directory>%s</Directory>\n' "$MENU_DIRECTORY_FILE"
+        printf '%s\n' '    <Include>'
+        printf '      <Category>%s</Category>\n' "$MENU_CATEGORY"
+        printf '%s\n' '    </Include>'
+        printf '%s\n' '  </Menu>'
+        printf '%s\n' '</Menu>'
+    } > "$MENU_FILE"
+    refresh_menu_cache
+    echo "Installed the Codespace menu with ${#MENU_ENTRIES[@]} entries"
+}
+
+uninstall_menu() {
+    local entry command
+    for entry in "${MENU_ENTRIES[@]}"; do
+        command="${entry%%|*}"
+        rm -f "$MENU_APPLICATIONS_DIR/$MENU_PREFIX-$command.desktop"
+    done
+    rm -f "$MENU_DIRECTORIES_DIR/$MENU_DIRECTORY_FILE" "$MENU_FILE"
+    rm -rf "$MENU_ICONS_DIR"
+    rmdir "$MENU_DATA_DIR/$MENU_PREFIX" 2>/dev/null || true
+    refresh_menu_cache
+    echo "Removed the Codespace menu"
 }
 
 while [ $# -gt 0 ]; do
@@ -255,6 +430,12 @@ case "$cmd" in
         ;;
     kate)
         run_gui kate "$@"
+        ;;
+    install-menu)
+        install_menu
+        ;;
+    uninstall-menu)
+        uninstall_menu
         ;;
     help|-h|--help)
         usage
