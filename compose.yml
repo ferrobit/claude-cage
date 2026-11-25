@@ -94,17 +94,17 @@ services:
       NO_PROXY: &no_proxy localhost,127.0.0.1,::1
       no_proxy: *no_proxy
     volumes:
-      # Dedicated container home directory (not the host home).  The container
-      # user has the same UID/GID as the host user, so files created here are
-      # owned by you on the host.
-      - "./home:/home/${USER:-user}"
+      # Dedicated container home directory (not the host home), kept on the
+      # host in ~/.config/codespace/home.  The container user has the same
+      # UID/GID as the host user, so files created here are owned by you.
+      - "${HOME}/.config/codespace/home:/home/${USER:-user}"
 
-      # The host's ~/Claude shared at the same path, as a deliberate hand-off
-      # folder for Claude Desktop.  It is bookmarked in the standard file
-      # dialog (see mihomo/entrypoint.sh), so it appears in the sidebar.
+      # The host's ~/Codespace shared at the same path, as a deliberate
+      # hand-off folder for Claude Desktop.  It is bookmarked in the standard
+      # file dialog (see mihomo/entrypoint.sh), so it appears in the sidebar.
       # Read-write so Claude can save files there; every other host folder
       # stays hidden from the container.
-      - "${HOME}/Claude:/home/${USER:-user}/Claude:rw"
+      - "${HOME}/Codespace:/home/${USER:-user}/Codespace:rw"
 
       # Host Xauthority file (read-only, single file, not the home directory).
       # The wrapper sets XAUTHORITY_FILE; when unset, /dev/null is a harmless

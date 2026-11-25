@@ -39,10 +39,10 @@ export INPUT_GID="${INPUT_GID:-993}"
 # The container timezone is fixed in compose.yml (it matches the proxy exit
 # location), so the host timezone is intentionally not forwarded.
 
-# The container has its own home directory (./home), so the host Xauthority
-# file is exposed separately as a single read-only file.  On a Wayland session
-# XAUTHORITY often lives under XDG_RUNTIME_DIR; `xhost +si:localuser` covers
-# X11 access either way.
+# The container has its own home directory (~/.config/codespace/home), so the
+# host Xauthority file is exposed separately as a single read-only file.  On a
+# Wayland session XAUTHORITY often lives under XDG_RUNTIME_DIR;
+# `xhost +si:localuser` covers X11 access either way.
 HOST_XAUTHORITY="${XAUTHORITY:-$HOME/.Xauthority}"
 if [ -f "$HOST_XAUTHORITY" ]; then
     export XAUTHORITY_FILE="$HOST_XAUTHORITY"
@@ -67,12 +67,13 @@ container_xauthority() {
     printf '/run/host/xauthority\n'
 }
 
-# Create the dedicated container home before compose does, so it is owned by
-# the invoking user rather than root.  The host ~/Claude hand-off folder is
-# bind-mounted into it (see compose.yml), so create it as the user as well.
+# Create the dedicated container home and the host ~/Codespace hand-off folder
+# before compose does, so they are owned by the invoking user rather than
+# root.  The empty Codespace mount point inside the container home is created
+# too: otherwise Docker creates it as root.
 ensure_home() {
-    mkdir -p "$SCRIPT_DIR/home"
-    mkdir -p "$HOME/Claude"
+    mkdir -p "$HOME/.config/codespace/home/Codespace"
+    mkdir -p "$HOME/Codespace"
 }
 
 require_container() {

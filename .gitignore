@@ -1,11 +1,6 @@
-# Dedicated container home: profiles, sign-ins and caches stay local.
-home/*
-!home/README.md
-
-# SSH keys and other secrets (install-harden.sh looks for tools/vps/vps.pem).
 *.pem
 *.key
 id_rsa*
-id_ed25519*
+id_ed*
 .env
 .env.*

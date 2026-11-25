@@ -50,8 +50,8 @@ websites cannot recover the host's real position.
 - 🌎 **Configurable location** — timezone, language and geolocation are set
   explicitly and can be matched to any proxy; see the
   [step-by-step guide](#timezone-language-and-geolocation).
-- 🏠 **Isolated home** — a dedicated `./home` instead of your host home;
-  only `~/Claude` is shared as a hand-off folder.
+- 🏠 **Isolated home** — a dedicated `~/.config/codespace/home` instead of
+  your host home; only `~/Codespace` is shared as a hand-off folder.
 - 👤 **Same UID/GID as the host user** — files written by the container belong
   to you.
 - 🛡️ **Exit-host hardening** — optional nftables rules for the VPS that hide
@@ -132,9 +132,9 @@ application. Use `./claude-cage.sh logs` if an application fails to start.
 **Hand a file to Claude Desktop:**
 
 ```bash
-cp ~/Documents/report.pdf ~/Claude/
+cp ~/Documents/report.pdf ~/Codespace/
 ./claude-cage.sh claude
-# In Claude Desktop: attach a file → "Claude (host)" in the sidebar → report.pdf
+# In Claude Desktop: attach a file → "Codespace (host)" in the sidebar → report.pdf
 ```
 
 **Update Claude Desktop to the latest AUR version:**
@@ -182,8 +182,8 @@ flowchart LR
     [Timezone, language and geolocation](#timezone-language-and-geolocation));
   - `--proxy-server=http://127.0.0.1:7890`;
   - `--force-webrtc-ip-handling-policy=disable_non_proxied_udp`.
-- A non-root user whose UID/GID match the host user, so files in `./home` are
-  owned by you on the host.
+- A non-root user whose UID/GID match the host user, so files in the container
+  home (`~/.config/codespace/home`) are owned by you on the host.
 - The static `mihomo` binary copied from `metacubex/mihomo:latest`, plus
   `socat`, the configuration in `mihomo/config.yaml` and the entrypoint in
   `mihomo/entrypoint.sh`. Both helpers start with the container and restart
@@ -382,7 +382,8 @@ single quotes):
 ### Step 5. Apply the changes
 
 ```bash
-rm -f home/.config/plasma-localerc   # let the entrypoint seed the new KDE locale
+# let the entrypoint seed the new KDE locale
+rm -f ~/.config/codespace/home/.config/plasma-localerc
 ./claude-cage.sh build
 ./claude-cage.sh restart
 ```
@@ -417,8 +418,8 @@ In Firefox:
 - These settings cannot change your public IP address: its geolocation is
   decided by the proxy's exit server.
 - Google and similar services can still infer a location from account
-  history, cookies or sign-in information. The container home in `./home`
-  starts fresh, but signing in carries that history with you; use separate
+  history, cookies or sign-in information. The container home in
+  `~/.config/codespace/home` starts fresh, but signing in carries that history with you; use separate
   accounts if that matters.
 
 ## Hiding the tunnel from the exit host
@@ -458,8 +459,8 @@ ping -c 2 -W 3 <VPS-IP>                             # 100% packet loss, no reply
 
 ## GUI and home directory
 
-The container has its own home directory: `./home` is mounted at
-`/home/$USER`. The host X11/Wayland, D-Bus, audio and GPU devices are shared
+The container has its own home directory: the host's
+`~/.config/codespace/home` is mounted at `/home/$USER`. The host X11/Wayland, D-Bus, audio and GPU devices are shared
 with the container. Before launching an application, the wrapper allows the
 current host user through `xhost` (X11 only) and exposes the host
 `XAUTHORITY` file as a single read-only mount — never the whole home
@@ -467,18 +468,23 @@ directory.
 
 Because the home is separate, container applications start with fresh
 profiles: the first time you launch Claude Desktop or Firefox, you will need
-to sign in again. Copy any configuration you want into `./home` yourself; it
-stays on the host after the container is removed.
+to sign in again. Copy any configuration you want into
+`~/.config/codespace/home` yourself; it stays on the host after the container
+is removed. What appears there and how to reset it is described in
+[docs/container-home.md](docs/container-home.md).
 
-The host's `~/Claude` is the only exception. It is bind-mounted read-write at
-the same path (`/home/$USER/Claude`) and bookmarked as **Claude (host)** in the
-standard file dialog (the entry is seeded in `~/.config/gtk-3.0/bookmarks`).
-Files placed there on the host can be opened and saved from Claude Desktop; no
-other host folder is visible.
+The host's `~/Codespace` is the only exception. It is bind-mounted read-write
+at the same path (`/home/$USER/Codespace`) and bookmarked as
+**Codespace (host)** in the standard file dialog (the entry is seeded in
+`~/.config/gtk-3.0/bookmarks`). Files placed there on the host can be opened
+and saved from Claude Desktop; no other host folder is visible.
+
+Both folders are created by `./claude-cage.sh up` (and `restart`) if they do
+not exist yet, owned by your host user.
 
 > [!TIP]
 > To give Claude read-only access to the hand-off folder, change `:rw` to
-> `:ro` on the `~/Claude` mount in `compose.yml`.
+> `:ro` on the `~/Codespace` mount in `compose.yml`.
 
 ## Configuration
 
@@ -487,7 +493,8 @@ other host folder is visible.
 | Upstream SOCKS5 port (`HOST_PROXY_PORT`) | environment variable or `.env`; see [Changing the proxy port](#changing-the-proxy-port) |
 | Local mixed proxy port (`7890`) | `mihomo/config.yaml`, `compose.yml`, `compose.dockerfile` |
 | Timezone, language, geolocation | see [Timezone, language and geolocation](#timezone-language-and-geolocation) |
-| Shared host folder (`~/Claude`) | `compose.yml` |
+| Container home (`~/.config/codespace/home`) | `compose.yml` → `volumes:`, `claude-cage.sh` → `ensure_home` |
+| Shared host folder (`~/Codespace`) | `compose.yml` → `volumes:`, `claude-cage.sh` → `ensure_home`, `mihomo/entrypoint.sh` (file-dialog bookmark) |
 | GPU device (`/dev/dri`) | `compose.yml` → `devices:` |
 
 If the host's SOCKS5 proxy requires authentication, add the credentials to
@@ -556,8 +563,9 @@ Check it:
   Anthropic's official `.deb` from `downloads.claude.ai` and verifies it
   against the PKGBUILD checksum. The container proxy does not exist yet at that
   point.
-- **Persistent home.** `./home` persists across `down`/`up`, and its contents
-  are ignored by git.
+- **Persistent home.** `~/.config/codespace/home` persists across
+  `down`/`up`. It lives outside the project directory, so it never ends up in
+  git.
 - **Shared session bus.** Single-instance applications (Dolphin, Kate, …)
   share the host D-Bus session, so launching one from the container may focus
   an already-running host instance instead of opening a second one.
@@ -584,11 +592,11 @@ claude-cage/
 ├── compose.dockerfile       # Manjaro KDE + AUR arc-kde-git/claude-desktop
 ├── .dockerignore            # build context: Dockerfile + mihomo/ only
 ├── docs/
+│   ├── container-home.md    # contents of the container home, how to reset it
 │   ├── logo.svg             # project logo (vector)
 │   ├── logo.png             # project logo, 512 px raster
 │   ├── social-preview.svg   # GitHub social preview source (needs the Inter font)
 │   └── social-preview.png   # 1280 × 640 image for Settings → Social preview
-├── home/                    # dedicated container home (not the host home)
 ├── mihomo/
 │   ├── config.yaml          # embedded mihomo configuration
 │   └── entrypoint.sh        # proxy helpers, egress firewall, desktop seeding

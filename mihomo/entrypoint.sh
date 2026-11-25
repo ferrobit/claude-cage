@@ -110,13 +110,14 @@ seed_kde_locale() {
 seed_kde_locale
 
 # Claude's file dialog (GTK, used by Electron) builds its sidebar from
-# ~/.config/gtk-3.0/bookmarks.  The host's ~/Claude is bind-mounted at the
-# same path, so bookmark it there; the entry then shows up as "Claude (host)"
-# in the standard open/save dialog.  Existing bookmarks are preserved.
+# ~/.config/gtk-3.0/bookmarks.  The host's ~/Codespace is bind-mounted at the
+# same path, so bookmark it there; the entry then shows up as
+# "Codespace (host)" in the standard open/save dialog.  Existing bookmarks are
+# preserved.
 seed_file_dialog_bookmark() {
     dir="${HOME:-/root}/.config/gtk-3.0"
     file="$dir/bookmarks"
-    entry="file://${HOME:-/root}/Claude Claude (host)"
+    entry="file://${HOME:-/root}/Codespace Codespace (host)"
     mkdir -p "$dir" 2>/dev/null || return 0
     if [ -f "$file" ] && grep -qxF "$entry" "$file"; then
         return 0
