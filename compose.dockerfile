@@ -268,10 +268,13 @@ RUN set -eux; \
 # Embedded mihomo
 #
 # mihomo listens on container loopback (mixed-port 7890) and sends every
-# connection to the host's SOCKS5 proxy.  The entrypoint also forwards
-# container 127.0.0.1:12005 to the host's published port, so the proxy entry
-# stays exactly `127.0.0.1:12005`.  No ports are published and the container
-# is not attached to any other container's network.
+# connection to the host's SOCKS5 proxy.  /etc/mihomo/config.yaml is a
+# template; at start the entrypoint fills in HOST_PROXY_PORT (set in
+# compose.yml) and forwards container 127.0.0.1:HOST_PROXY_PORT to the same
+# port on the host.  No ports are published and the container is not attached
+# to any other container's network.  COPY keeps the file modes of the build
+# context, so the template is made world-readable explicitly: the entrypoint
+# runs as the unprivileged container user.
 # ---------------------------------------------------------------------------
 COPY --from=mihomo /mihomo /usr/local/bin/mihomo
 COPY mihomo/config.yaml /etc/mihomo/config.yaml
@@ -280,6 +283,8 @@ COPY mihomo/entrypoint.sh /usr/local/bin/claude-cage-entrypoint
 RUN set -eux; \
     pacman -S --noconfirm --needed socat; \
     chmod 0755 /usr/local/bin/mihomo /usr/local/bin/claude-cage-entrypoint; \
+    chmod 0755 /etc/mihomo; \
+    chmod 0644 /etc/mihomo/config.yaml; \
     mkdir -p /var/lib/mihomo; \
     chown "${USER_UID}:${USER_GID}" /var/lib/mihomo
 

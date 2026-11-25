@@ -1,13 +1,17 @@
-# Embedded mihomo configuration for claude-cage.
+# Embedded mihomo configuration template for claude-cage.
 #
 # The only egress is the host's SOCKS5 proxy.  Inside the container
-# 127.0.0.1:12005 is forwarded to the host's published port by
+# 127.0.0.1:${HOST_PROXY_PORT} is forwarded to the same port on the host by
 # the entrypoint (socat), so the upstream below is exactly the required
 # single SOCKS5 proxy.
 #
+# This file is a template: the entrypoint replaces the HOST_PROXY_PORT
+# placeholders with the value of the HOST_PROXY_PORT environment variable
+# (set in compose.yml) and starts mihomo with the result.
+#
 # Everything else listens on container loopback only:
 #   - mixed-port 7890: HTTP/SOCKS5 listener used by applications
-#   - 12005: local forward to the host's SOCKS5 service
+#   - ${HOST_PROXY_PORT}: local forward to the host's SOCKS5 service
 mixed-port: 7890
 bind-address: 127.0.0.1
 allow-lan: false
@@ -19,7 +23,7 @@ proxies:
   - name: host-proxy
     type: socks5
     server: 127.0.0.1
-    port: 12005
+    port: ${HOST_PROXY_PORT}
     udp: false
 
 rules:

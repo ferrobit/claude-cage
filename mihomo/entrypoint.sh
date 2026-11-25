@@ -7,12 +7,40 @@
 # transient host-side hiccup does not permanently take the container offline.
 set -eu
 
-HOST_PROXY_PORT=12005
+# The host's SOCKS5 port comes from the environment.  Its default is set in
+# one place only: `environment: HOST_PROXY_PORT` in compose.yml.
+HOST_PROXY_PORT="${HOST_PROXY_PORT:-}"
+case "$HOST_PROXY_PORT" in
+    '')
+        echo "claude-cage: HOST_PROXY_PORT is not set (see compose.yml)" >&2
+        exit 1
+        ;;
+    *[!0-9]*|0*)
+        echo "claude-cage: invalid HOST_PROXY_PORT '$HOST_PROXY_PORT'" >&2
+        exit 1
+        ;;
+esac
+if [ "$HOST_PROXY_PORT" -lt 1 ] || [ "$HOST_PROXY_PORT" -gt 65535 ]; then
+    echo "claude-cage: HOST_PROXY_PORT out of range ($HOST_PROXY_PORT)" >&2
+    exit 1
+fi
 
-# Forward 127.0.0.1:12005 inside the container to the host's SOCKS5 port.
-# This keeps mihomo's proxy entry exactly `127.0.0.1:12005` without exposing
-# any additional listener.  `nodelay` sets TCP_NODELAY on both sockets: socat
-# otherwise leaves Nagle's algorithm on, which holds small packets back.
+MIHOMO_DIR=/var/lib/mihomo
+MIHOMO_TEMPLATE=/etc/mihomo/config.yaml
+MIHOMO_CONFIG="$MIHOMO_DIR/config.yaml"
+
+# Render mihomo's configuration from the image template: the template keeps
+# the `${HOST_PROXY_PORT}` placeholder instead of a fixed port number.
+render_mihomo_config() {
+    sed "s/\\\$[{]HOST_PROXY_PORT[}]/$HOST_PROXY_PORT/g" "$MIHOMO_TEMPLATE" > "$MIHOMO_CONFIG.tmp"
+    mv -f "$MIHOMO_CONFIG.tmp" "$MIHOMO_CONFIG"
+}
+
+# Forward 127.0.0.1:HOST_PROXY_PORT inside the container to the same port on
+# the host.  This keeps mihomo's proxy entry `127.0.0.1:HOST_PROXY_PORT`
+# without exposing any additional listener.  `nodelay` sets TCP_NODELAY on
+# both sockets: socat otherwise leaves Nagle's algorithm on, which holds small
+# packets back.
 forward_loop() {
     while :; do
         socat TCP-LISTEN:${HOST_PROXY_PORT},bind=127.0.0.1,fork,reuseaddr,nodelay \
@@ -25,7 +53,7 @@ forward_loop() {
 # connection through host-proxy.
 mihomo_loop() {
     while :; do
-        mihomo -d /var/lib/mihomo -f /etc/mihomo/config.yaml || true
+        mihomo -d "$MIHOMO_DIR" -f "$MIHOMO_CONFIG" || true
         sleep 2
     done
 }
@@ -33,7 +61,7 @@ mihomo_loop() {
 # Deny every outbound packet except:
 #   - loopback (mihomo, socat, Docker's DNS socket)
 #   - established/related replies
-#   - the host's SOCKS5 port used by socat
+#   - the host's SOCKS5 port (HOST_PROXY_PORT) used by socat
 # This prevents applications that ignore proxy environment variables from
 # falling back to the host's own internet connection.
 apply_egress_firewall() {
@@ -59,6 +87,7 @@ apply_egress_firewall() {
 }
 
 apply_egress_firewall
+render_mihomo_config
 forward_loop &
 mihomo_loop &
 

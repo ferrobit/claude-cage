@@ -3,10 +3,10 @@ services:
   # Desktop container
   #
   # Egress goes through mihomo running inside this container.  Its only
-  # upstream is the host's SOCKS5 service (container 127.0.0.1:12005 is
-  # forwarded to the host's published port by the entrypoint).  The container
-  # keeps its own normal Docker network, publishes no ports and imports no
-  # other container's network.
+  # upstream is the host's SOCKS5 service on port HOST_PROXY_PORT (container
+  # 127.0.0.1:HOST_PROXY_PORT is forwarded to the same port on the host by the
+  # entrypoint).  The container keeps its own normal Docker network,
+  # publishes no ports and imports no other container's network.
   # -------------------------------------------------------------------------
   claude-cage:
     image: claude-cage
@@ -28,7 +28,7 @@ services:
     cap_add:
       - NET_ADMIN
     # Makes the host's published SOCKS5 port reachable from this
-    # container (the entrypoint forwards 127.0.0.1:12005 to it).
+    # container (the entrypoint forwards 127.0.0.1:HOST_PROXY_PORT to it).
     extra_hosts:
       - "host.docker.internal:host-gateway"
     # Send small TCP segments at once: the kernel must not hold them back to
@@ -78,6 +78,11 @@ services:
       # Audio + session bus from the host
       PULSE_SERVER: unix:/run/user/${HOST_UID:-1000}/pulse/native
       DBUS_SESSION_BUS_ADDRESS: unix:path=/run/user/${HOST_UID:-1000}/bus
+
+      # Host SOCKS5 proxy port.  This is the only place where its default is
+      # set: export HOST_PROXY_PORT (or put it in .env) to use another port.
+      # The entrypoint uses it for socat, the egress firewall and mihomo.
+      HOST_PROXY_PORT: ${HOST_PROXY_PORT:-7800}
 
       # Route proxy-aware tools through the embedded mihomo.
       ALL_PROXY: &proxy socks5h://127.0.0.1:7890
