@@ -88,8 +88,12 @@ cd claude-cage
 ## Usage
 
 ```text
-./claude-cage.sh <command> [arguments...]
+./claude-cage.sh [--up] <command> [arguments...]
 ```
+
+| Option | Description |
+|---|---|
+| `--up` | Start the container first if it is not running, then run the command (GUI commands, `shell`, `run`) |
 
 | Command | Description |
 |---|---|
@@ -110,6 +114,16 @@ cd claude-cage
 
 GUI commands run detached and return immediately after launching the
 application. Use `./claude-cage.sh logs` if an application fails to start.
+
+Without `--up`, GUI commands, `shell` and `run` stop with an error when the
+container is not running. With `--up` the wrapper starts it the same way as
+`up`, waits up to 15 seconds for mihomo to accept connections on
+`127.0.0.1:7890`, and then runs the command. `--up` goes before the command,
+so a desktop shortcut can launch Claude Desktop in one step:
+
+```bash
+./claude-cage.sh --up claude
+```
 
 ## Examples
 

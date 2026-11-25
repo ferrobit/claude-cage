@@ -76,16 +76,58 @@ ensure_home() {
     mkdir -p "$HOME/Codespace"
 }
 
+# Set by the --up option: start the container on demand instead of failing.
+AUTO_UP=0
+
+container_running() {
+    docker inspect -f '{{.State.Running}}' "$CONTAINER_NAME" 2>/dev/null | grep -q true
+}
+
+start_container() {
+    allow_x11
+    ensure_home
+    "${COMPOSE[@]}" up -d --build --remove-orphans "$@"
+}
+
+# The entrypoint starts mihomo in the background, so a freshly started
+# container may not accept proxy connections yet.  Wait up to 15 seconds for
+# the local listener before launching applications that need the network.
+wait_for_proxy() {
+    local attempt
+    for attempt in $(seq 1 30); do
+        if docker exec "$CONTAINER_NAME" bash -c 'exec 3<>/dev/tcp/127.0.0.1/7890' 2>/dev/null; then
+            return 0
+        fi
+        sleep 0.5
+    done
+    echo "warning: mihomo is not listening on 127.0.0.1:7890 yet; see: $0 logs" >&2
+}
+
 require_container() {
-    if ! docker inspect -f '{{.State.Running}}' "$CONTAINER_NAME" 2>/dev/null | grep -q true; then
+    if container_running; then
+        return 0
+    fi
+    if [ "$AUTO_UP" != 1 ]; then
         echo "error: $CONTAINER_NAME is not running; start it with: $0 up" >&2
+        echo "       or add --up to start it on demand: $0 --up <command>" >&2
         exit 1
     fi
+    echo "$CONTAINER_NAME is not running; starting it" >&2
+    start_container
+    if ! container_running; then
+        echo "error: $CONTAINER_NAME did not start; see: $0 logs" >&2
+        exit 1
+    fi
+    wait_for_proxy
 }
 
 usage() {
     cat <<EOF
-Usage: $(basename "$0") <command> [arguments...]
+Usage: $(basename "$0") [--up] <command> [arguments...]
+
+Options:
+  --up                  Start the container first if it is not running
+                        (GUI commands, shell, run)
 
 Lifecycle:
   build                 Build the claude-cage image
@@ -111,6 +153,7 @@ Inside the container:
 Examples:
   $(basename "$0") up
   $(basename "$0") claude
+  $(basename "$0") --up claude
   $(basename "$0") firefox
   $(basename "$0") run pacman -Q arc-kde-git
 EOF
@@ -150,6 +193,18 @@ run_interactive() {
         "$CONTAINER_NAME" "$@"
 }
 
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --up)
+            AUTO_UP=1
+            shift
+            ;;
+        *)
+            break
+            ;;
+    esac
+done
+
 cmd="${1:-help}"
 [ $# -gt 0 ] && shift || true
 
@@ -158,18 +213,14 @@ case "$cmd" in
         "${COMPOSE[@]}" build "$@"
         ;;
     up|start)
-        allow_x11
-        ensure_home
-        "${COMPOSE[@]}" up -d --build --remove-orphans "$@"
+        start_container "$@"
         ;;
     down|stop)
         "${COMPOSE[@]}" down "$@"
         ;;
     restart)
         "${COMPOSE[@]}" down
-        allow_x11
-        ensure_home
-        "${COMPOSE[@]}" up -d --build --remove-orphans
+        start_container
         ;;
     ps|status)
         "${COMPOSE[@]}" ps "$@"
