@@ -17,6 +17,7 @@ will find:
 | `Codespace/` | `claude-cage.sh` | mount point of the host's `~/Codespace`; on this side it stays empty |
 | `.config/Claude/` | Claude Desktop | settings, sign-in session, local data |
 | `.config/mozilla/firefox/` | Firefox | browser profile: cookies, history, saved logins |
+| `.config/BraveSoftware/Brave-Browser/` | Brave | browser profile: cookies, history, saved logins |
 | `.config/`, `.local/share/` | KDE applications | settings and data of Dolphin, Konsole, Kate, KWallet, … |
 | `.cache/` | all applications | caches; safe to delete, can grow large |
 | `.bash_history` | `./claude-cage.sh shell` | shell history |

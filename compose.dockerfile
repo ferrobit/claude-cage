@@ -240,6 +240,92 @@ RUN set -eux; \
         > /usr/lib/firefox/distribution/policies.json
 
 # ---------------------------------------------------------------------------
+# Brave
+#
+# Brave is installed from the official release ZIP on GitHub instead of the
+# Manjaro package, so it does not depend on the state of the pacman database.
+# The archive is pinned by version and SHA-256; to update, take both values
+# from brave-browser-<version>-linux-amd64.zip.sha256 on the release page.
+# Its runtime libraries (gtk3, nss, alsa-lib, libxss, ...) are already
+# installed for Claude Desktop.
+#
+# A wrapper named `brave` starts the browser binary with the sandbox,
+# language, proxy and WebRTC flags.  chrome-sandbox loses its setuid bit:
+# the browser runs with --no-sandbox, so the helper is never used.
+# ---------------------------------------------------------------------------
+ARG BRAVE_VERSION=1.100.59
+ARG BRAVE_SHA256=54ef4f65ba3b6fa6ed767820e005d606196fc9b78b65cc6da68cfea2eb7c0a75
+RUN set -eux; \
+    file="brave-browser-${BRAVE_VERSION}-linux-amd64.zip"; \
+    curl -fsSL --retry 5 -o "/tmp/${file}" \
+        "https://github.com/brave/brave-browser/releases/download/v${BRAVE_VERSION}/${file}"; \
+    printf '%s  %s\n' "${BRAVE_SHA256}" "/tmp/${file}" | sha256sum -c -; \
+    rm -rf /opt/brave; \
+    mkdir -p /opt/brave; \
+    bsdtar -xf "/tmp/${file}" -C /opt/brave; \
+    rm -f "/tmp/${file}"; \
+    test -x /opt/brave/brave; \
+    chmod 0755 /opt/brave/chrome-sandbox; \
+    printf '%s\n' \
+        '#!/bin/sh' \
+        '# The Chromium sandbox needs user namespaces, which plain Docker blocks.' \
+        '# --no-zygote is required when unprivileged user namespaces are blocked.' \
+        '# Internet access must go through the embedded mihomo listener.' \
+        '# --lang is derived from LANG (de_DE.UTF-8 -> de-DE); disabling non-proxied UDP' \
+        '# stops WebRTC from leaking the container or host address.' \
+        'lang_tag="$(printf "%s" "${LANG%%[.@]*}" | tr _ -)"' \
+        'export CHROME_VERSION_EXTRA=stable' \
+        'exec /opt/brave/brave \' \
+        '    --no-sandbox --no-zygote --ozone-platform-hint=auto \' \
+        '    --proxy-server=http://127.0.0.1:7890 \' \
+        '    --lang="${lang_tag}" \' \
+        '    --force-webrtc-ip-handling-policy=disable_non_proxied_udp \' \
+        '    "$@"' \
+        > /usr/local/bin/brave; \
+    chmod 755 /usr/local/bin/brave; \
+    printf '%s\n' \
+        '[Desktop Entry]' \
+        'Version=1.0' \
+        'Type=Application' \
+        'Name=Brave' \
+        'GenericName=Web Browser' \
+        'Comment=Access the Internet' \
+        'Exec=/usr/local/bin/brave %U' \
+        'Icon=/opt/brave/product_logo_256.png' \
+        'StartupWMClass=brave-browser' \
+        'Terminal=false' \
+        'Categories=Network;WebBrowser;' \
+        'MimeType=text/html;application/xhtml+xml;x-scheme-handler/http;x-scheme-handler/https;' \
+        > /usr/share/applications/brave-browser.desktop
+
+# Brave reads managed policies from /etc/brave/policies/managed.  They take
+# precedence over command-line flags and user settings, so the browser UI
+# cannot change them.  The proxy also covers DNS (the HTTP CONNECT proxy
+# receives hostnames), WebRTC may not send UDP past the proxy, DNS over HTTPS
+# is off and geolocation is denied, as in the Firefox policy above.  Private
+# windows with Tor are disabled: Tor would try to reach its relays directly,
+# which the egress firewall blocks anyway.  The warning bar about the
+# --no-sandbox flag is hidden: in this container the flag is expected.
+RUN set -eux; \
+    mkdir -p /etc/brave/policies/managed; \
+    printf '%s\n' \
+        '{' \
+        '  "ProxySettings": {' \
+        '    "ProxyMode": "fixed_servers",' \
+        '    "ProxyServer": "http://127.0.0.1:7890",' \
+        '    "ProxyBypassList": "localhost;127.0.0.1;[::1]"' \
+        '  },' \
+        '  "DnsOverHttpsMode": "off",' \
+        '  "WebRtcIPHandling": "disable_non_proxied_udp",' \
+        '  "DefaultGeolocationSetting": 2,' \
+        '  "TorDisabled": true,' \
+        '  "CommandLineFlagSecurityWarningsEnabled": false' \
+        '}' \
+        > /etc/brave/policies/managed/claude-cage.json; \
+    chmod 0755 /etc/brave /etc/brave/policies /etc/brave/policies/managed; \
+    chmod 0644 /etc/brave/policies/managed/claude-cage.json
+
+# ---------------------------------------------------------------------------
 # Desktop user matching the host UID/GID
 #
 # The Manjaro base image already ships a "builder" user with UID 1000.  Remove

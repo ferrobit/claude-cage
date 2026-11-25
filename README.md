@@ -43,8 +43,8 @@ websites cannot recover the host's real position.
 
 ## Features
 
-- 🖥️ **Full KDE desktop stack** — Dolphin, Konsole, Kate, Ark and Firefox,
-  rendered on the host's X11 or Wayland display.
+- 🖥️ **Full KDE desktop stack** — Dolphin, Konsole, Kate, Ark, Firefox and
+  Brave, rendered on the host's X11 or Wayland display.
 - 🔒 **Single egress path** — mihomo → socat → host SOCKS5; everything else is
   dropped by an `iptables` `OUTPUT` policy.
 - 🌎 **Configurable location** — timezone, language and geolocation are set
@@ -101,6 +101,7 @@ cd claude-cage
 | `logs` | Follow the logs |
 | `claude [args...]` | Launch Claude Desktop on the host display |
 | `firefox [args...]` | Launch Firefox |
+| `brave [args...]` | Launch Brave |
 | `dolphin [args...]` | Launch Dolphin |
 | `konsole [args...]` | Launch Konsole |
 | `kate [args...]` | Launch Kate |
@@ -144,6 +145,18 @@ cp ~/Documents/report.pdf ~/Codespace/
 ./claude-cage.sh restart
 ```
 
+**Update Brave to a newer release:**
+
+Take the version and the SHA-256 from
+`brave-browser-<version>-linux-amd64.zip.sha256` on the
+[release page](https://github.com/brave/brave-browser/releases), put them into
+`BRAVE_VERSION` and `BRAVE_SHA256` in `compose.dockerfile`, then:
+
+```bash
+./claude-cage.sh build
+./claude-cage.sh restart
+```
+
 **Open a shell for troubleshooting:**
 
 ```bash
@@ -156,7 +169,7 @@ cp ~/Documents/report.pdf ~/Codespace/
 ```mermaid
 flowchart LR
     subgraph cage["claude-cage container"]
-        apps["Claude Desktop<br/>Firefox<br/>CLI tools"] -->|"HTTP / SOCKS5<br/>127.0.0.1:7890"| mihomo["mihomo"]
+        apps["Claude Desktop<br/>Firefox / Brave<br/>CLI tools"] -->|"HTTP / SOCKS5<br/>127.0.0.1:7890"| mihomo["mihomo"]
         mihomo -->|"SOCKS5<br/>127.0.0.1:HOST_PROXY_PORT"| socat["socat"]
         other["Direct connections"] -.->|"dropped by iptables"| drop(("✕"))
     end
@@ -168,7 +181,8 @@ flowchart LR
 ### What the image contains
 
 - `manjarolinux/base:latest` with the `plasma-meta` KDE desktop stack,
-  Dolphin, Konsole, Kate, Ark and Firefox.
+  Dolphin, Konsole, Kate, Ark and Firefox from the standard Manjaro
+  repositories.
 - `arc-kde-git` and `claude-desktop`, built from the AUR during
   `docker build` with `makepkg` under a throw-away `aurbuild` user. The
   `claude-desktop` PKGBUILD repackages Anthropic's official Debian build, so
@@ -182,6 +196,14 @@ flowchart LR
     [Timezone, language and geolocation](#timezone-language-and-geolocation));
   - `--proxy-server=http://127.0.0.1:7890`;
   - `--force-webrtc-ip-handling-policy=disable_non_proxied_udp`.
+- Brave under `/opt/brave`, unpacked from the official release ZIP
+  (`brave-browser-<version>-linux-amd64.zip` from
+  [GitHub](https://github.com/brave/brave-browser/releases)) instead of the
+  Manjaro package. The archive is pinned by `BRAVE_VERSION` and `BRAVE_SHA256`
+  in `compose.dockerfile` and checked with `sha256sum` during the build. A
+  wrapper at `/usr/local/bin/brave` starts the browser with the same four
+  groups of flags as Claude Desktop; the KDE menu entry
+  (`brave-browser.desktop`) runs the wrapper too.
 - A non-root user whose UID/GID match the host user, so files in the container
   home (`~/.config/codespace/home`) are owned by you on the host.
 - The static `mihomo` binary copied from `metacubex/mihomo:latest`, plus
@@ -221,6 +243,14 @@ and no extra Docker networks are used.
   Firefox gets an enterprise policy at
   `/usr/lib/firefox/distribution/policies.json` that sends HTTP and HTTPS to
   the same listener and locks DNS over HTTPS off.
+- Brave gets a managed policy at
+  `/etc/brave/policies/managed/claude-cage.json`: `ProxySettings` sends all
+  traffic to the same listener, `WebRtcIPHandling` keeps WebRTC from sending
+  UDP past the proxy, `DnsOverHttpsMode` is `off`,
+  `DefaultGeolocationSetting` denies location requests and `TorDisabled`
+  removes private windows with Tor; `CommandLineFlagSecurityWarningsEnabled`
+  hides the warning bar about `--no-sandbox`. Managed policies take precedence
+  over command-line flags and the browser settings.
 
 ### Low-latency TCP
 
@@ -306,6 +336,7 @@ Everything else is derived from them, so do not edit it:
 | `/etc/locale.conf` | `${LANG}`, `${LC_ALL}` | build |
 | Firefox policy `"RequestedLocales"` | `${LANG}` → language tag (`de_DE.UTF-8` → `de-DE`) | build |
 | Claude Desktop `--lang` | `${LANG}` → language tag | every launch |
+| Brave `--lang` | `${LANG}` → language tag | every launch |
 | KDE `~/.config/plasma-localerc` | `${LANG}`, `${LANGUAGE}` (seeded by `mihomo/entrypoint.sh`) | first container start |
 
 Keep the values in `compose.dockerfile` and `compose.yml` identical. The
@@ -322,6 +353,9 @@ For a language other than English, also extend the `pacman -S` list in
 - `firefox-i18n-<lang>` (for example `firefox-i18n-de`) — the Firefox
   language pack; without it `RequestedLocales` falls back to English;
 - `noto-fonts-cjk` — required for Chinese, Japanese and Korean text.
+
+Brave needs no extra package: its interface translations ship in the
+release ZIP.
 
 Optionally, pin the language list that Firefox sends to websites by adding
 this entry to the `"Preferences"` block of the Firefox policy:
@@ -353,13 +387,29 @@ By default geolocation is blocked everywhere:
   | `network.connectivity-service.enabled` | `false` | no probes outside the proxy |
   | `network.trr.mode` | `5` | DNS over HTTPS is off |
 
+- **Brave.** The managed policy in `compose.dockerfile`
+  (`/etc/brave/policies/managed/claude-cage.json` in the image) sets:
+
+  | Policy | Value | Effect |
+  |---|---|---|
+  | `DefaultGeolocationSetting` | `2` | location requests are denied |
+  | `WebRtcIPHandling` | `disable_non_proxied_udp` | WebRTC may only use the proxy |
+  | `DnsOverHttpsMode` | `off` | DNS over HTTPS is off |
+  | `ProxySettings` | `fixed_servers`, `http://127.0.0.1:7890` | every request goes through mihomo |
+  | `TorDisabled` | `true` | no private windows with Tor |
+  | `CommandLineFlagSecurityWarningsEnabled` | `false` | no warning bar about `--no-sandbox` |
+
+  The wrapper also adds
+  `--force-webrtc-ip-handling-policy=disable_non_proxied_udp`.
+
 - **Claude Desktop.** Electron (the framework Claude Desktop is built on) has
   no location source of its own: it needs a Google API key, which is not set.
   The wrapper adds `--force-webrtc-ip-handling-policy=disable_non_proxied_udp`,
   so WebRTC cannot send UDP past the proxy.
 
 Keeping geolocation blocked is the recommended setup. If a site needs a
-location, Firefox can report **fixed coordinates** instead. Replace the
+location, Firefox can report **fixed coordinates** instead (Brave has no such
+setting, so keep it blocked there). Replace the
 `geo.enabled` and `permissions.default.geo` entries in the Firefox policy with
 the block below (inside the Dockerfile's `printf` every line stays wrapped in
 single quotes):
@@ -389,7 +439,8 @@ rm -f ~/.config/codespace/home/.config/plasma-localerc
 ```
 
 `seed_kde_locale` never overwrites an existing `plasma-localerc`, so delete it
-first. Restart Claude Desktop and Firefox after the container is recreated.
+first. Restart Claude Desktop, Firefox and Brave after the container is
+recreated.
 
 ### Step 6. Verify
 
@@ -413,14 +464,30 @@ In Firefox:
   "geolocation" in navigator                        // false while geolocation is blocked
   ```
 
+In Brave:
+
+- `brave://policy` → the six policies are listed with status **OK**;
+- `brave://settings/languages` → the new language is at the top (a profile
+  created before the change keeps its old list; add the language there by
+  hand);
+- in DevTools (`Ctrl+Shift+J`):
+
+  ```js
+  Intl.DateTimeFormat().resolvedOptions().timeZone  // "Europe/Berlin"
+  navigator.languages                               // starts with "de-DE"
+  ```
+
+  Brave's fingerprinting protection may shorten `navigator.languages` to the
+  first language. `navigator.geolocation` exists, but every request is denied.
+
 ### Limits
 
 - These settings cannot change your public IP address: its geolocation is
   decided by the proxy's exit server.
 - Google and similar services can still infer a location from account
   history, cookies or sign-in information. The container home in
-  `~/.config/codespace/home` starts fresh, but signing in carries that history with you; use separate
-  accounts if that matters.
+  `~/.config/codespace/home` starts fresh, but signing in carries that history
+  with you; use separate accounts if that matters.
 
 ## Hiding the tunnel from the exit host
 
@@ -467,8 +534,8 @@ current host user through `xhost` (X11 only) and exposes the host
 directory.
 
 Because the home is separate, container applications start with fresh
-profiles: the first time you launch Claude Desktop or Firefox, you will need
-to sign in again. Copy any configuration you want into
+profiles: the first time you launch Claude Desktop, Firefox or Brave, you
+will need to sign in again. Copy any configuration you want into
 `~/.config/codespace/home` yourself; it stays on the host after the container
 is removed. What appears there and how to reset it is described in
 [docs/container-home.md](docs/container-home.md).
@@ -494,6 +561,7 @@ not exist yet, owned by your host user.
 | Local mixed proxy port (`7890`) | `mihomo/config.yaml`, `compose.yml`, `compose.dockerfile` |
 | Timezone, language, geolocation | see [Timezone, language and geolocation](#timezone-language-and-geolocation) |
 | Container home (`~/.config/codespace/home`) | `compose.yml` → `volumes:`, `claude-cage.sh` → `ensure_home` |
+| Brave release (`BRAVE_VERSION`, `BRAVE_SHA256`) | `compose.dockerfile` |
 | Shared host folder (`~/Codespace`) | `compose.yml` → `volumes:`, `claude-cage.sh` → `ensure_home`, `mihomo/entrypoint.sh` (file-dialog bookmark) |
 | GPU device (`/dev/dri`) | `compose.yml` → `devices:` |
 
@@ -561,8 +629,9 @@ Check it:
   mirrors (pacman then requests package versions that no mirror still has).
 - **Build needs direct internet.** Building `claude-desktop` downloads
   Anthropic's official `.deb` from `downloads.claude.ai` and verifies it
-  against the PKGBUILD checksum. The container proxy does not exist yet at that
-  point.
+  against the PKGBUILD checksum; the Brave release ZIP comes from `github.com`
+  and is checked against `BRAVE_SHA256`. The container proxy does not exist
+  yet at that point.
 - **Persistent home.** `~/.config/codespace/home` persists across
   `down`/`up`. It lives outside the project directory, so it never ends up in
   git.
@@ -571,10 +640,14 @@ Check it:
   an already-running host instance instead of opening a second one.
 - **Not a sandbox for hostile code.** The container user has passwordless
   `sudo`; this is a convenience setup.
+- **Brave runs without its own sandbox.** Brave starts with `--no-sandbox`,
+  because Docker blocks the user namespaces its sandbox needs. The policy
+  `CommandLineFlagSecurityWarningsEnabled: false` only hides the warning bar
+  about this flag; the browser is still unsandboxed inside the container.
 - **Wayland.** `XDG_RUNTIME_DIR`, `/tmp/.X11-unix` and the host Xauthority file
   are used for GUI access. On a pure Wayland session the `WAYLAND_DISPLAY`
-  socket is shared through `XDG_RUNTIME_DIR`: Electron and Firefox use Wayland,
-  while Qt/KDE applications use XWayland (`QT_QPA_PLATFORM=xcb`).
+  socket is shared through `XDG_RUNTIME_DIR`: Electron, Firefox and Brave use
+  Wayland, while Qt/KDE applications use XWayland (`QT_QPA_PLATFORM=xcb`).
 - **Device groups.** The `group_add` GIDs in `compose.yml` default to common
   values. The wrapper overrides them with the host's actual `video`, `render`,
   `audio` and `input` groups, and the image is built with matching GIDs, so

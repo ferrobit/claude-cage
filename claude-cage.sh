@@ -98,6 +98,7 @@ Lifecycle:
 Desktop / GUI:
   claude [args...]      Launch Claude Desktop on the host display
   firefox [args...]     Launch Firefox on the host display
+  brave [args...]       Launch Brave on the host display
   dolphin [args...]     Launch Dolphin on the host display
   konsole [args...]     Launch Konsole on the host display
   kate [args...]        Launch Kate on the host display
@@ -191,6 +192,9 @@ case "$cmd" in
         ;;
     firefox)
         run_gui firefox "$@"
+        ;;
+    brave|brave-browser)
+        run_gui brave "$@"
         ;;
     dolphin)
         run_gui dolphin "$@"
