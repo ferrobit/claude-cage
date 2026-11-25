@@ -1,7 +1,7 @@
 # Manjaro KDE desktop image for claude-cage.
 #
 # Build context contains:
-#   mihomo/         embedded proxy config and entrypoint
+#   container/mihomo/   embedded proxy config and entrypoint
 #   this file
 #
 # Claude Desktop is installed from the AUR package `claude-desktop`, which
@@ -363,8 +363,8 @@ RUN set -eux; \
 # runs as the unprivileged container user.
 # ---------------------------------------------------------------------------
 COPY --from=mihomo /mihomo /usr/local/bin/mihomo
-COPY mihomo/config.yaml /etc/mihomo/config.yaml
-COPY mihomo/entrypoint.sh /usr/local/bin/claude-cage-entrypoint
+COPY container/mihomo/config.yaml /etc/mihomo/config.yaml
+COPY container/mihomo/entrypoint.sh /usr/local/bin/claude-cage-entrypoint
 
 RUN set -eux; \
     pacman -S --noconfirm --needed socat; \

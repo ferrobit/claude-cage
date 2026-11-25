@@ -101,9 +101,9 @@ services:
 
       # The host's ~/Codespace shared at the same path, as a deliberate
       # hand-off folder for Claude Desktop.  It is bookmarked in the standard
-      # file dialog (see mihomo/entrypoint.sh), so it appears in the sidebar.
-      # Read-write so Claude can save files there; every other host folder
-      # stays hidden from the container.
+      # file dialog (see container/mihomo/entrypoint.sh), so it appears in the
+      # sidebar.  Read-write so Claude can save files there; every other host
+      # folder stays hidden from the container.
       - "${HOME}/Codespace:/home/${USER:-user}/Codespace:rw"
 
       # Host Xauthority file (read-only, single file, not the home directory).

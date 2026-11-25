@@ -207,9 +207,9 @@ flowchart LR
 - A non-root user whose UID/GID match the host user, so files in the container
   home (`~/.config/codespace/home`) are owned by you on the host.
 - The static `mihomo` binary copied from `metacubex/mihomo:latest`, plus
-  `socat`, the configuration in `mihomo/config.yaml` and the entrypoint in
-  `mihomo/entrypoint.sh`. Both helpers start with the container and restart
-  automatically if they exit.
+  `socat`, the configuration in `container/mihomo/config.yaml` and the
+  entrypoint in `container/mihomo/entrypoint.sh`. Both helpers start with the
+  container and restart automatically if they exit.
 
 ### Network model
 
@@ -217,7 +217,7 @@ mihomo is embedded in `claude-cage`: it is not a separate service, and the
 container does not join another container's network. No ports are published,
 and no extra Docker networks are used.
 
-- `mihomo/config.yaml` is a template that defines exactly one proxy,
+- `container/mihomo/config.yaml` is a template that defines exactly one proxy,
   `host-proxy`, a SOCKS5 upstream at `127.0.0.1:${HOST_PROXY_PORT}`, and the
   single rule `MATCH,host-proxy`. At start the entrypoint fills in the port and
   runs mihomo with the result.
@@ -260,8 +260,8 @@ of being held back and merged:
 | Hop | Setting | Where |
 |---|---|---|
 | application → mihomo (`127.0.0.1:7890`) | `TCP_NODELAY`, set by mihomo (the Go runtime enables it by default) | built in |
-| mihomo → socat (`127.0.0.1:HOST_PROXY_PORT`) | `TCP_NODELAY` on both ends: mihomo by default, socat by `nodelay` | `mihomo/entrypoint.sh` |
-| socat → host SOCKS5 (`host.docker.internal:HOST_PROXY_PORT`) | `TCP_NODELAY` by `nodelay` | `mihomo/entrypoint.sh` |
+| mihomo → socat (`127.0.0.1:HOST_PROXY_PORT`) | `TCP_NODELAY` on both ends: mihomo by default, socat by `nodelay` | `container/mihomo/entrypoint.sh` |
+| socat → host SOCKS5 (`host.docker.internal:HOST_PROXY_PORT`) | `TCP_NODELAY` by `nodelay` | `container/mihomo/entrypoint.sh` |
 | every TCP socket in the container | `net.ipv4.tcp_autocorking: 0` (no kernel-side merging of small writes) | `compose.yml` → `sysctls:` |
 
 `TCP_NODELAY` turns off Nagle's algorithm, which delays a small packet until
@@ -337,7 +337,7 @@ Everything else is derived from them, so do not edit it:
 | Firefox policy `"RequestedLocales"` | `${LANG}` → language tag (`de_DE.UTF-8` → `de-DE`) | build |
 | Claude Desktop `--lang` | `${LANG}` → language tag | every launch |
 | Brave `--lang` | `${LANG}` → language tag | every launch |
-| KDE `~/.config/plasma-localerc` | `${LANG}`, `${LANGUAGE}` (seeded by `mihomo/entrypoint.sh`) | first container start |
+| KDE `~/.config/plasma-localerc` | `${LANG}`, `${LANGUAGE}` (seeded by `container/mihomo/entrypoint.sh`) | first container start |
 
 Keep the values in `compose.dockerfile` and `compose.yml` identical. The
 replacement order matters (`en_US:en` first), so use exactly this command:
@@ -499,25 +499,25 @@ UDP probes to well-known ports and treats an ICMP "unreachable" answer as a
 sign of a blocking firewall. Nothing inside `claude-cage` can affect those
 probes, so the exit VPS silently drops them:
 
-- [`tools/vps/lan-harden.nft`](tools/vps/lan-harden.nft) adds a separate
+- [`container/harden/lan-harden.nft`](container/harden/lan-harden.nft) adds a separate
   nftables table (`inet lan_harden`) that drops inbound `echo-request`,
   `timestamp-request` and `address-mask-request`, plus UDP probes on ports
   `500`, `1194`, `1701`, `1723`, `4500` and `51820`. None of these ports are
   in use; the AmneziaWG endpoint uses another UDP port and stays open.
-- [`tools/vps/lan-harden.service`](tools/vps/lan-harden.service) loads that
+- [`container/harden/lan-harden.service`](container/harden/lan-harden.service) loads that
   table at boot. It never flushes the ruleset, so Docker's tables and the real
   services are untouched.
-- [`tools/vps/install-harden.sh`](tools/vps/install-harden.sh) copies both
+- [`container/harden/install-harden.sh`](container/harden/install-harden.sh) copies both
   files to the VPS over SSH and enables the service.
 
 Install it (and re-apply after rebuilding the VPS):
 
 ```bash
-KEY=~/.ssh/vps.pem ./tools/vps/install-harden.sh root@<VPS-IP>
+KEY=~/.ssh/vps.pem ./container/harden/install-harden.sh root@<VPS-IP>
 ```
 
-`KEY` defaults to `tools/vps/vps.pem`; that file is ignored by git, never
-commit it. Then check from the host:
+`KEY` defaults to `container/harden/vps.pem`; that file is ignored by git,
+never commit it. Then check from the host:
 
 ```bash
 ping -c 2 -W 3 <VPS-IP>                             # 100% packet loss, no reply
@@ -558,16 +558,16 @@ not exist yet, owned by your host user.
 | What | Where |
 |---|---|
 | Upstream SOCKS5 port (`HOST_PROXY_PORT`) | environment variable or `.env`; see [Changing the proxy port](#changing-the-proxy-port) |
-| Local mixed proxy port (`7890`) | `mihomo/config.yaml`, `compose.yml`, `compose.dockerfile` |
+| Local mixed proxy port (`7890`) | `container/mihomo/config.yaml`, `compose.yml`, `compose.dockerfile` |
 | Timezone, language, geolocation | see [Timezone, language and geolocation](#timezone-language-and-geolocation) |
 | Container home (`~/.config/codespace/home`) | `compose.yml` → `volumes:`, `claude-cage.sh` → `ensure_home` |
 | Brave release (`BRAVE_VERSION`, `BRAVE_SHA256`) | `compose.dockerfile` |
-| Shared host folder (`~/Codespace`) | `compose.yml` → `volumes:`, `claude-cage.sh` → `ensure_home`, `mihomo/entrypoint.sh` (file-dialog bookmark) |
+| Shared host folder (`~/Codespace`) | `compose.yml` → `volumes:`, `claude-cage.sh` → `ensure_home`, `container/mihomo/entrypoint.sh` (file-dialog bookmark) |
 | GPU device (`/dev/dri`) | `compose.yml` → `devices:` |
 
 If the host's SOCKS5 proxy requires authentication, add the credentials to
-`host-proxy` in `mihomo/config.yaml`. `socat` forwards raw TCP, so no other
-change is needed:
+`host-proxy` in `container/mihomo/config.yaml`. `socat` forwards raw TCP, so
+no other change is needed:
 
 ```yaml
 proxies:
@@ -663,17 +663,21 @@ claude-cage/
 ├── claude-cage.sh           # host-side wrapper (lifecycle, GUI and shell commands)
 ├── compose.yml              # claude-cage desktop container
 ├── compose.dockerfile       # Manjaro KDE + AUR arc-kde-git/claude-desktop
-├── .dockerignore            # build context: Dockerfile + mihomo/ only
+├── .dockerignore            # build context: Dockerfile + container/mihomo/ only
 ├── docs/
 │   ├── container-home.md    # contents of the container home, how to reset it
 │   ├── logo.svg             # project logo (vector)
 │   ├── logo.png             # project logo, 512 px raster
 │   ├── social-preview.svg   # GitHub social preview source (needs the Inter font)
 │   └── social-preview.png   # 1280 × 640 image for Settings → Social preview
-├── mihomo/
-│   ├── config.yaml          # embedded mihomo configuration
-│   └── entrypoint.sh        # proxy helpers, egress firewall, desktop seeding
-└── tools/vps/               # optional exit-VPS hardening (nftables + systemd)
+└── container/
+    ├── mihomo/
+    │   ├── config.yaml      # embedded mihomo configuration template
+    │   └── entrypoint.sh    # proxy helpers, egress firewall, desktop seeding
+    └── harden/              # optional exit-VPS hardening (nftables + systemd)
+        ├── install-harden.sh
+        ├── lan-harden.nft
+        └── lan-harden.service
 ```
 
 ## License

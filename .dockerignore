@@ -1,5 +1,5 @@
 *
 !compose.dockerfile
-!mihomo/
-!mihomo/config.yaml
-!mihomo/entrypoint.sh
+!container/mihomo/
+!container/mihomo/config.yaml
+!container/mihomo/entrypoint.sh
